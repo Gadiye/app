@@ -1,0 +1,13 @@
+# Python
+*.pyc
+__pycache__/
+db.sqlite3
+
+# Virtual environment
+myproject_env/
+
+# VS Code settings (optional)
+.vscode/
+
+# OS files
+.DS_Store
