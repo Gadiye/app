@@ -98,6 +98,7 @@ CORS_ALLOW_ALL_ORIGINS = True  # Only for development
 # Media files (for payslip PDFs, etc.)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Static files
 STATIC_URL = '/static/'

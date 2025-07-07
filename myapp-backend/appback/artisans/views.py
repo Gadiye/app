@@ -1,4 +1,4 @@
-from rest_framework import generics, status, filters
+from rest_framework import generics, status, filters, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
@@ -8,7 +8,9 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 
-from .models import Artisan, JobItem, Payslip
+from jobs.models import JobItem
+from payslips.models import Payslip
+from .models import Artisan
 from .serializers import (
     ArtisanSerializer, 
     ArtisanDetailSerializer,
@@ -304,3 +306,8 @@ def artisan_stats(request, pk):
             {"error": "Artisan not found"}, 
             status=status.HTTP_404_NOT_FOUND
         )
+
+
+class ArtisanViewSet(viewsets.ModelViewSet):
+    queryset = Artisan.objects.all()
+    serializer_class = ArtisanSerializer
