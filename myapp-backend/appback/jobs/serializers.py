@@ -1,176 +1,147 @@
+# jobs/serializers.py
 from rest_framework import serializers
-from .models import Job, JobItem
-from artisans.models import Artisan
-from products.models import Product
-from artisans.serializers import ArtisanSerializer
-from products.serializers import ProductSerializer
+from .models import Job, JobItem, JobDelivery
+from artisans.models import Artisan # Assuming Artisan app
+from products.models import Product # Assuming Product app
+
+# --- Lite Serializers for Nested Data ---
+
+class ArtisanJobItemLiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Artisan
+        fields = ['id', 'name']
+
+class ProductJobItemLiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = ['id', 'product_type', 'animal_type', 'base_price', 'service_category']
 
 
-class JobItemSerializer(serializers.ModelSerializer):
-    """Serializer for JobItem model with nested artisan and product data."""
-    artisan = ArtisanSerializer(read_only=True)
-    product = ProductSerializer(read_only=True)
-    artisan_id = serializers.IntegerField(write_only=True)
-    product_id = serializers.IntegerField(write_only=True)
+# --- JobItem Serializers ---
+
+class JobItemDeliverySerializer(serializers.ModelSerializer):
+    """Serializer for JobDelivery when creating/listing deliveries."""
+    class Meta:
+        model = JobDelivery
+        fields = ['id', 'quantity_received', 'quantity_accepted', 'rejection_reason', 'delivery_date', 'notes']
+        read_only_fields = ['delivery_date']
+
+    def validate(self, data):
+        # Additional validation can be added here, e.g., quantity_accepted <= quantity_received
+        if data.get('quantity_accepted', 0) > data.get('quantity_received', 0):
+            raise serializers.ValidationError("Quantity accepted cannot exceed quantity received.")
+        return data
+
+
+class JobItemCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating JobItems."""
+    artisan = serializers.PrimaryKeyRelatedField(queryset=Artisan.objects.all())
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
 
     class Meta:
         model = JobItem
         fields = [
-            'id', 'artisan', 'product', 'artisan_id', 'product_id',
-            'quantity_ordered', 'quantity_received', 'quantity_accepted',
-            'original_amount', 'final_payment'
+            'id', 'artisan', 'product', 'quantity_ordered', 'quantity_received',
+            'quantity_accepted', 'rejection_reason', 'payslip_generated'
         ]
-
-    def validate_artisan_id(self, value):
-        """Validate that the artisan exists."""
-        if not Artisan.objects.filter(id=value).exists():
-            raise serializers.ValidationError("Artisan with this ID does not exist.")
-        return value
-
-    def validate_product_id(self, value):
-        """Validate that the product exists."""
-        if not Product.objects.filter(id=value).exists():
-            raise serializers.ValidationError("Product with this ID does not exist.")
-        return value
-
-
-class JobItemLightSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for JobItem without full nested data."""
-    artisan = serializers.SerializerMethodField()
-    product = serializers.SerializerMethodField()
-
-    class Meta:
-        model = JobItem
-        fields = [
-            'id', 'artisan', 'product', 'quantity_ordered', 
-            'quantity_received', 'quantity_accepted'
-        ]
-
-    def get_artisan(self, obj):
-        return {"id": obj.artisan.id, "name": obj.artisan.name}
-
-    def get_product(self, obj):
-        return {
-            "id": obj.product.id,
-            "product_type": obj.product.product_type,
-            "animal_type": getattr(obj.product, 'animal_type', None)
+        read_only_fields = ['payslip_generated', 'quantity_received', 'quantity_accepted', 'rejection_reason'] # These are managed by deliveries
+        extra_kwargs = {
+            'quantity_ordered': {'min_value': 1}
         }
 
-
-class JobSerializer(serializers.ModelSerializer):
-    """Main serializer for Job model."""
-    total_cost = serializers.ReadOnlyField()
-    total_final_payment = serializers.ReadOnlyField()
-    items = JobItemLightSerializer(many=True, read_only=True)
-    created_date = serializers.DateTimeField(read_only=True)
-
-    class Meta:
-        model = Job
-        fields = [
-            'job_id', 'created_date', 'created_by', 'status', 
-            'service_category', 'notes', 'total_cost', 
-            'total_final_payment', 'items'
-        ]
-
-    def validate_service_category(self, value):
-        """Validate service category against Product.SERVICE_CATEGORIES."""
-        from products.models import Product
-        valid_categories = [choice[0] for choice in Product.SERVICE_CATEGORIES]
-        if value not in valid_categories:
-            raise serializers.ValidationError(
-                f"Invalid service category. Must be one of: {valid_categories}"
-            )
+    def validate_product(self, value):
+        # Optionally validate that product's service_category matches job's service_category if needed
+        if 'job' in self.context:
+            job = self.context['job']
+            if value.service_category != job.service_category:
+                 raise serializers.ValidationError(f"Product service category '{value.service_category}' does not match job service category '{job.service_category}'.")
         return value
-
-
-class JobCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating jobs with nested items."""
-    items = JobItemSerializer(many=True, required=False)
-    total_cost = serializers.ReadOnlyField()
-    total_final_payment = serializers.ReadOnlyField()
-
-    class Meta:
-        model = Job
-        fields = [
-            'job_id', 'created_by', 'service_category', 'notes', 
-            'items', 'total_cost', 'total_final_payment'
-        ]
 
     def create(self, validated_data):
-        """Create job with nested items."""
-        items_data = validated_data.pop('items', [])
-        job = Job.objects.create(**validated_data)
-        
-        # Create job items
-        for item_data in items_data:
-            artisan_id = item_data.pop('artisan_id')
-            product_id = item_data.pop('product_id')
-            JobItem.objects.create(
-                job=job,
-                artisan_id=artisan_id,
-                product_id=product_id,
-                **item_data
-            )
-        
-        # Update job status based on items
-        job.update_status()
-        return job
+        job = self.context['job'] # Job instance is passed from JobItemViewSet
+        validated_data['job'] = job
+        # original_amount and final_payment are set in model's save method
+        return super().create(validated_data)
 
-    def validate_service_category(self, value):
-        """Validate service category against Product.SERVICE_CATEGORIES."""
-        from products.models import Product
-        valid_categories = [choice[0] for choice in Product.SERVICE_CATEGORIES]
-        if value not in valid_categories:
-            raise serializers.ValidationError(
-                f"Invalid service category. Must be one of: {valid_categories}"
-            )
-        return value
+    def update(self, instance, validated_data):
+        # Prevent changing job for an existing job item
+        if 'job' in validated_data and validated_data['job'] != instance.job:
+            raise serializers.ValidationError({"job": "Job cannot be changed for an existing job item."})
+        # Prevent changing artisan or product after creation if desired
+        if 'artisan' in validated_data and validated_data['artisan'] != instance.artisan:
+            raise serializers.ValidationError({"artisan": "Artisan cannot be changed for an existing job item."})
+        if 'product' in validated_data and validated_data['product'] != instance.product:
+            raise serializers.ValidationError({"product": "Product cannot be changed for an existing job item."})
+
+        # Manual fields are quantity_ordered
+        instance.quantity_ordered = validated_data.get('quantity_ordered', instance.quantity_ordered)
+        # Other fields (quantity_received, quantity_accepted, rejection_reason, payslip_generated)
+        # are updated by JobDelivery or Payslip logic, so they are read-only here.
+
+        instance.save() # This will trigger the model's save and update job status
+        return instance
 
 
-class JobUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating jobs with nested items."""
-    items = JobItemSerializer(many=True, required=False)
-    status = serializers.CharField(read_only=True)  # Prevent manual status updates
+class JobItemDetailListSerializer(serializers.ModelSerializer):
+    """Serializer for listing and retrieving JobItems, with nested related data."""
+    artisan = ArtisanJobItemLiteSerializer(read_only=True)
+    product = ProductJobItemLiteSerializer(read_only=True)
+    deliveries = JobItemDeliverySerializer(many=True, read_only=True) # Nested deliveries
+
+    class Meta:
+        model = JobItem
+        fields = [
+            'id', 'job', 'artisan', 'product', 'quantity_ordered',
+            'quantity_received', 'quantity_accepted', 'rejection_reason',
+            'original_amount', 'final_payment', 'payslip_generated', 'deliveries'
+        ]
+        read_only_fields = [
+            'quantity_received', 'quantity_accepted', 'rejection_reason',
+            'original_amount', 'final_payment', 'payslip_generated'
+        ]
+
+
+# --- Job Serializers ---
+
+class JobListSerializer(serializers.ModelSerializer):
+    """Serializer for listing Jobs."""
+    service_category_display = serializers.CharField(source='get_service_category_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    total_cost = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    total_final_payment = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
 
     class Meta:
         model = Job
-        fields = ['service_category', 'notes', 'items', 'status']
+        fields = [
+            'job_id', 'created_date', 'created_by', 'status', 'status_display',
+            'service_category', 'service_category_display', 'notes',
+            'total_cost', 'total_final_payment'
+        ]
+        read_only_fields = ['created_date', 'status', 'total_cost', 'total_final_payment']
 
-    def update(self, instance, validated_data):
-        """Update job with nested items."""
-        items_data = validated_data.pop('items', [])
-        
-        # Update job fields
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        
-        # Update or create job items
-        for item_data in items_data:
-            item_id = item_data.get('id')
-            if item_id:
-                # Update existing item
-                try:
-                    job_item = JobItem.objects.get(id=item_id, job=instance)
-                    for attr, value in item_data.items():
-                        if attr not in ['id', 'artisan_id', 'product_id']:
-                            setattr(job_item, attr, value)
-                    job_item.save()
-                except JobItem.DoesNotExist:
-                    pass
-            else:
-                # Create new item
-                artisan_id = item_data.pop('artisan_id', None)
-                product_id = item_data.pop('product_id', None)
-                if artisan_id and product_id:
-                    JobItem.objects.create(
-                        job=instance,
-                        artisan_id=artisan_id,
-                        product_id=product_id,
-                        **item_data
-                    )
-        
-        # Update job status based on items
-        instance.update_status()
-        return instance
 
+class JobDetailSerializer(JobListSerializer):
+    """Serializer for retrieving a single Job, with nested JobItems."""
+    items = JobItemDetailListSerializer(many=True, read_only=True) # Nested job items
+
+    class Meta(JobListSerializer.Meta):
+        fields = JobListSerializer.Meta.fields + ['items']
+
+
+class JobCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating Jobs."""
+    # created_by will be set automatically based on request.user
+    created_by = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True) # Status is auto-updated by model methods
+
+    class Meta:
+        model = Job
+        fields = [
+            'job_id', 'created_date', 'created_by', 'status', 'service_category', 'notes'
+        ]
+        read_only_fields = ['job_id', 'created_date']
+
+    def validate_service_category(self, value):
+        if value not in [choice[0] for choice in Product.SERVICE_CATEGORIES]:
+            raise serializers.ValidationError("Invalid service category.")
+        return value

@@ -1,4 +1,7 @@
+# jobs/models.py
+
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
 from products.models import Product
 from artisans.models import Artisan
 
@@ -56,6 +59,16 @@ class JobItem(models.Model):
     final_payment = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
     payslip_generated = models.BooleanField(default=False)
     
+    # Add rating field to support frontend rating display
+    rating = models.DecimalField(
+        max_digits=2,
+        decimal_places=1,
+        validators=[MinValueValidator(1.0), MaxValueValidator(5.0)],
+        null=True,
+        blank=True,
+        help_text="Rating from 1.0 to 5.0"
+    )
+    
     def save(self, *args, **kwargs):
         if not self.pk:  # Only on creation
             self.original_amount = self.product.base_price * self.quantity_ordered
@@ -99,7 +112,7 @@ class JobDelivery(models.Model):
             finished_stock.average_cost = (
                 (finished_stock.quantity * finished_stock.average_cost + self.quantity_accepted * job_item.product.base_price)
                 / (finished_stock.quantity + self.quantity_accepted)
-            ) if finished_stock.quantity + self.quantity_accepted > 0 else job_item.product.base_price
+            ) if (finished_stock.quantity + self.quantity_accepted) > 0 else job_item.product.base_price
             finished_stock.save()
         else:
             inventory, created = Inventory.objects.get_or_create(
@@ -111,5 +124,5 @@ class JobDelivery(models.Model):
             inventory.average_cost = (
                 (inventory.quantity * inventory.average_cost + self.quantity_accepted * job_item.product.base_price)
                 / (inventory.quantity + self.quantity_accepted)
-            ) if inventory.quantity + self.quantity_accepted > 0 else job_item.product.base_price
+            ) if (inventory.quantity + self.quantity_accepted) > 0 else job_item.product.base_price
             inventory.save()

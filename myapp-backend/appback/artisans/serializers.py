@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.core.validators import RegexValidator
+from django.db import models
 import re
 
 from .models import Artisan
@@ -26,10 +27,28 @@ class ArtisanSerializer(serializers.ModelSerializer):
         help_text="Phone number in international format"
     )
     
+    # Frontend-expected fields with proper naming
+    totalJobs = serializers.SerializerMethodField()
+    totalEarnings = serializers.SerializerMethodField()
+    specialties = serializers.SerializerMethodField()
+    lastJobDate = serializers.SerializerMethodField()
+    pendingPayment = serializers.SerializerMethodField()
+    averageRating = serializers.SerializerMethodField()
+    
+    # Add createdDate as alias for created_date
+    createdDate = serializers.DateTimeField(source='created_date', read_only=True)
+    
     class Meta:
         model = Artisan
-        fields = ['id', 'name', 'phone', 'is_active', 'created_date']
-        read_only_fields = ['id', 'created_date']
+        fields = [
+            'id', 'name', 'phone', 'is_active', 'created_date', 'createdDate',
+            'totalJobs', 'totalEarnings', 'specialties', 'lastJobDate', 
+            'pendingPayment', 'averageRating'
+        ]
+        read_only_fields = [
+            'id', 'created_date', 'createdDate', 'totalJobs', 'totalEarnings', 
+            'specialties', 'lastJobDate', 'pendingPayment', 'averageRating'
+        ]
     
     def validate_name(self, value):
         """Validate that name is not empty and is reasonable length"""
@@ -54,6 +73,24 @@ class ArtisanSerializer(serializers.ModelSerializer):
                     "Invalid phone number format. Use international format like +1234567890"
                 )
         return value
+    
+    def get_totalJobs(self, obj):
+        return obj.total_jobs
+    
+    def get_totalEarnings(self, obj):
+        return obj.total_earnings
+    
+    def get_specialties(self, obj):
+        return obj.specialties
+    
+    def get_lastJobDate(self, obj):
+        return obj.last_job_date
+    
+    def get_pendingPayment(self, obj):
+        return obj.pending_payment
+    
+    def get_averageRating(self, obj):
+        return round(obj.average_rating, 1)
 
 
 class JobSummarySerializer(serializers.ModelSerializer):
@@ -89,17 +126,51 @@ class ArtisanDetailSerializer(serializers.ModelSerializer):
     jobs = serializers.SerializerMethodField()
     payslips = serializers.SerializerMethodField()
     
+    # Include all the computed fields
+    totalJobs = serializers.SerializerMethodField()
+    totalEarnings = serializers.SerializerMethodField()
+    specialties = serializers.SerializerMethodField()
+    lastJobDate = serializers.SerializerMethodField()
+    pendingPayment = serializers.SerializerMethodField()
+    averageRating = serializers.SerializerMethodField()
+    createdDate = serializers.DateTimeField(source='created_date', read_only=True)
+    
     class Meta:
         model = Artisan
-        fields = ['id', 'name', 'phone', 'is_active', 'created_date', 'jobs', 'payslips']
-        read_only_fields = ['id', 'created_date', 'jobs', 'payslips']
+        fields = [
+            'id', 'name', 'phone', 'is_active', 'created_date', 'createdDate',
+            'totalJobs', 'totalEarnings', 'specialties', 'lastJobDate', 
+            'pendingPayment', 'averageRating', 'jobs', 'payslips'
+        ]
+        read_only_fields = [
+            'id', 'created_date', 'createdDate', 'totalJobs', 'totalEarnings', 
+            'specialties', 'lastJobDate', 'pendingPayment', 'averageRating', 'jobs', 'payslips'
+        ]
+    
+    def get_totalJobs(self, obj):
+        return obj.total_jobs
+    
+    def get_totalEarnings(self, obj):
+        return obj.total_earnings
+    
+    def get_specialties(self, obj):
+        return obj.specialties
+    
+    def get_lastJobDate(self, obj):
+        return obj.last_job_date
+    
+    def get_pendingPayment(self, obj):
+        return obj.pending_payment
+    
+    def get_averageRating(self, obj):
+        return round(obj.average_rating, 1)
     
     def get_jobs(self, obj):
         """
         Return job summary if requested, otherwise None.
         """
         if hasattr(obj, 'prefetch_jobs') and obj.prefetch_jobs:
-            job_items = JobItem.objects.filter(artisan=obj).select_related('job')[:10]  # Limit to 10 most recent
+            job_items = JobItem.objects.filter(artisan=obj).select_related('job')[:10]
             return JobSummarySerializer(job_items, many=True).data
         return None
     
@@ -108,7 +179,7 @@ class ArtisanDetailSerializer(serializers.ModelSerializer):
         Return payslip summary if requested, otherwise None.
         """
         if hasattr(obj, 'prefetch_payslips') and obj.prefetch_payslips:
-            payslips = Payslip.objects.filter(artisan=obj).order_by('-generated_date')[:10]  # Limit to 10 most recent
+            payslips = Payslip.objects.filter(artisan=obj).order_by('-generated_date')[:10]
             return PayslipSummarySerializer(payslips, many=True).data
         return None
 

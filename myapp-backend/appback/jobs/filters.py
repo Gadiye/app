@@ -1,18 +1,44 @@
+# jobs/filters.py
 import django_filters
-from .models import Job
+from .models import Job, JobItem
+from artisans.models import Artisan # Assuming Artisan app
+from products.models import Product # Assuming Product app
 
 
 class JobFilter(django_filters.FilterSet):
-    """Custom filter for Job model."""
-    created_date = django_filters.DateFromToRangeFilter()
-    total_cost = django_filters.NumberFilter()
-    total_cost__gte = django_filters.NumberFilter(field_name='total_cost', lookup_expr='gte')
-    total_cost__lte = django_filters.NumberFilter(field_name='total_cost', lookup_expr='lte')
-    
+    created_date_gte = django_filters.DateFilter(field_name='created_date', lookup_expr='date__gte', help_text='Jobs created on or after (YYYY-MM-DD).')
+    created_date_lte = django_filters.DateFilter(field_name='created_date', lookup_expr='date__lte', help_text='Jobs created on or before (YYYY-MM-DD).')
+    status = django_filters.ChoiceFilter(choices=Job.STATUS_CHOICES, help_text='Filter by job status.')
+    service_category = django_filters.ChoiceFilter(choices=Product.SERVICE_CATEGORIES, help_text='Filter by service category.')
+    created_by = django_filters.CharFilter(lookup_expr='icontains', help_text='Search by partial creator name.')
+
     class Meta:
         model = Job
-        fields = {
-            'status': ['exact', 'in'],
-            'service_category': ['exact', 'in'],
-            'created_by': ['exact', 'icontains'],
-        }
+        fields = [
+            'created_date_gte', 'created_date_lte', 'status',
+            'service_category', 'created_by'
+        ]
+
+
+class JobItemFilter(django_filters.FilterSet):
+    artisan = django_filters.ModelChoiceFilter(
+        queryset=Artisan.objects.all(),
+        field_name='artisan',
+        help_text='Filter by Artisan ID.'
+    )
+    product = django_filters.ModelChoiceFilter(
+        queryset=Product.objects.all(),
+        field_name='product',
+        help_text='Filter by Product ID.'
+    )
+    payslip_generated = django_filters.BooleanFilter(help_text='Filter by payslip generation status (true/false).')
+    job_id = django_filters.NumberFilter(field_name='job__job_id', help_text='Filter by parent Job ID.')
+    created_date_gte = django_filters.DateFilter(field_name='job__created_date', lookup_expr='date__gte', help_text='Job created on or after (YYYY-MM-DD).')
+    created_date_lte = django_filters.DateFilter(field_name='job__created_date', lookup_expr='date__lte', help_text='Job created on or before (YYYY-MM-DD).')
+
+    class Meta:
+        model = JobItem
+        fields = [
+            'artisan', 'product', 'payslip_generated', 'job_id',
+            'created_date_gte', 'created_date_lte'
+        ]

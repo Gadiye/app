@@ -1,37 +1,54 @@
+# products/views.py
 from django.shortcuts import render
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, IsAdminUser
+from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.utils import timezone
-from django.shortcuts import get_object_or_404
+from datetime import datetime
 
 from .models import Product, PriceHistory
+ # Import choices directly
 from .serializers import (
-    ProductSerializer, 
-    ProductDetailSerializer, 
+    ProductSerializer,
+    ProductDetailSerializer,
     ProductCreateUpdateSerializer,
-    PriceHistorySerializer,
-    ProductMetadataSerializer
+    PriceHistoryListSerializer,
+    PriceHistoryCreateUpdateSerializer,
+    ProductLiteSerializer # Used by PriceHistoryListSerializer
 )
-from .filters import ProductFilter
+from .filters import ProductFilter, PriceHistoryFilter # Import both filters
+
+
+class ProductPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'limit'
+    max_page_size = 100
+
+
+class PriceHistoryPagination(PageNumberPagination):
+    """Custom pagination for price history lists."""
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 class ProductViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Product CRUD operations with additional functionality.
-    
+
     Provides:
     - List products with filtering, searching, and sorting
     - Retrieve individual product details
     - Create new products
     - Update existing products (with price history tracking)
     - Soft delete products
-    - Get price history for a product
+    - Get price history for a product (nested)
     """
-    
+
     queryset = Product.objects.all()
     permission_classes = [IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -39,7 +56,22 @@ class ProductViewSet(viewsets.ModelViewSet):
     search_fields = ['animal_type', 'product_type', 'service_category']
     ordering_fields = ['base_price', 'last_price_update', 'product_type', 'created_at']
     ordering = ['-last_price_update']
-    
+    pagination_class = ProductPagination
+
+
+    def get_permissions(self):
+        """
+        Set permissions based on action for ProductViewSet.
+        GET operations are read-only for all.
+        POST, PUT, PATCH, DELETE are restricted to IsAdminUser.
+        """
+        if self.action in ['list', 'retrieve', 'get_product_price_history', 'product_metadata']:
+            permission_classes = [IsAuthenticatedOrReadOnly]
+        else: # create, update, partial_update, destroy
+            permission_classes = [IsAuthenticated, IsAdminUser]
+        return [permission() for permission in permission_classes]
+
+
     def get_serializer_class(self):
         """Return appropriate serializer based on action."""
         if self.action == 'retrieve':
@@ -47,39 +79,41 @@ class ProductViewSet(viewsets.ModelViewSet):
         elif self.action in ['create', 'update', 'partial_update']:
             return ProductCreateUpdateSerializer
         return ProductSerializer
-    
+
     def get_queryset(self):
         """Filter queryset to show only active products by default."""
         queryset = Product.objects.all()
-        
-        # Show only active products by default unless explicitly requested
+
         if self.request.query_params.get('is_active') is None:
             queryset = queryset.filter(is_active=True)
-            
+
         return queryset
-    
-    def retrieve(self, request, *args, **kwargs):
+
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
         """
-        Retrieve a single product with optional price history.
-        
-        Query Parameters:
-        - include_price_history: Include price history in response
+        Create a new product. If a base_price is provided, also log initial price history.
         """
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-        data = serializer.data
-        
-        # Include price history if requested
-        if request.query_params.get('include_price_history', '').lower() == 'true':
-            price_history = PriceHistory.objects.filter(
-                product=instance
-            ).order_by('-effective_date')
-            data['price_history'] = PriceHistorySerializer(
-                price_history, many=True
-            ).data
-            
-        return Response(data)
-    
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        product = serializer.save()
+
+        if product.base_price is not None:
+            PriceHistory.objects.create(
+                product=product,
+                old_price=0.00,
+                new_price=product.base_price,
+                effective_date=timezone.now(),
+                changed_by=request.user.username if request.user.is_authenticated else 'system',
+                reason="Initial product price setting"
+            )
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
     @transaction.atomic
     def update(self, request, *args, **kwargs):
         """
@@ -88,255 +122,264 @@ class ProductViewSet(viewsets.ModelViewSet):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         old_price = instance.base_price
-        
+
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        
-        # Check if price is being updated
+
         new_price = serializer.validated_data.get('base_price')
-        if new_price and new_price != old_price:
-            # Create price history record
+
+        if new_price is not None and new_price != old_price:
             PriceHistory.objects.create(
                 product=instance,
                 old_price=old_price,
                 new_price=new_price,
                 effective_date=timezone.now(),
                 changed_by=request.user.username if request.user.is_authenticated else 'system',
-                reason=request.data.get('reason', 'Price update')
+                reason=request.data.get('reason', 'Product base price update')
             )
-        
+
         self.perform_update(serializer)
-        
+
         return Response(serializer.data)
-    
+
+    @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         """
         Soft delete product by setting is_active=False.
-        
-        Only allows hard deletion if no dependencies exist.
+        Only allows hard deletion if explicitly requested and no dependencies exist.
         """
         instance = self.get_object()
-        
-        # Check for dependencies (you may need to adjust based on your models)
-        has_dependencies = (
-            hasattr(instance, 'jobitem_set') and instance.jobitem_set.exists()
-        ) or (
-            hasattr(instance, 'orderitem_set') and instance.orderitem_set.exists()
-        )
-        
+
+        has_job_items = hasattr(instance, 'jobitem_set') and instance.jobitem_set.exists()
+        has_dependencies = has_job_items
+
         force_delete = request.query_params.get('force_delete', '').lower() == 'true'
-        
-        if has_dependencies and not force_delete:
-            # Soft delete
+
+        if has_dependencies and force_delete:
+            return Response(
+                {'error': 'Cannot hard delete product with existing dependencies. Consider soft deletion.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        elif has_dependencies and not force_delete:
             instance.is_active = False
             instance.save()
             return Response(
-                {'message': 'Product deactivated successfully'}, 
+                {'message': 'Product deactivated successfully (soft deleted).'},
                 status=status.HTTP_200_OK
             )
         elif not has_dependencies and force_delete:
-            # Hard delete
             instance.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
-        elif has_dependencies and force_delete:
-            return Response(
-                {'error': 'Cannot delete product with existing dependencies'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
         else:
-            # Default soft delete
             instance.is_active = False
             instance.save()
             return Response(
-                {'message': 'Product deactivated successfully'}, 
+                {'message': 'Product deactivated successfully (soft deleted).'},
                 status=status.HTTP_200_OK
             )
-    
+
+
     @action(detail=True, methods=['get'], url_path='price-history')
-    def price_history(self, request, pk=None):
+    def get_product_price_history(self, request, pk=None):
         """
-        Get price history for a specific product.
-        
-        Query Parameters:
-        - start_date: Filter from this date (YYYY-MM-DD)
-        - end_date: Filter to this date (YYYY-MM-DD)
+        GET /api/products/{product_id}/price-history/
+        Retrieve price history records for a specific product.
+        This action uses the dedicated PriceHistoryListSerializer.
         """
         product = self.get_object()
         queryset = PriceHistory.objects.filter(product=product).order_by('-effective_date')
-        
-        # Filter by date range if provided
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
-        
-        if start_date:
+
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+
+        if start_date_str:
             try:
-                from datetime import datetime
-                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
                 queryset = queryset.filter(effective_date__date__gte=start_date)
             except ValueError:
-                return Response(
-                    {'error': 'Invalid start_date format. Use YYYY-MM-DD'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        
-        if end_date:
+                return Response({'error': 'Invalid start_date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if end_date_str:
             try:
-                from datetime import datetime
-                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
                 queryset = queryset.filter(effective_date__date__lte=end_date)
             except ValueError:
-                return Response(
-                    {'error': 'Invalid end_date format. Use YYYY-MM-DD'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        
-        # Paginate the results
+                return Response({'error': 'Invalid end_date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
+
         page = self.paginate_queryset(queryset)
         if page is not None:
-            serializer = PriceHistorySerializer(page, many=True)
+            serializer = PriceHistoryListSerializer(page, many=True, context={'request': request})
             return self.get_paginated_response(serializer.data)
-        
-        serializer = PriceHistorySerializer(queryset, many=True)
+
+        serializer = PriceHistoryListSerializer(queryset, many=True, context={'request': request})
         return Response(serializer.data)
-    
+
     @action(detail=False, methods=['get'], url_path='metadata')
-    def metadata(self, request):
+    def product_metadata(self, request):
         """
+        GET /api/products/metadata/
         Provide metadata for product choices to populate frontend dropdowns.
         """
-        from .models import PRODUCT_TYPES, SERVICE_CATEGORIES, SIZE_CATEGORIES
-        
         data = {
-            'product_types': [
-                {'value': choice[0], 'label': choice[1]} 
-                for choice in PRODUCT_TYPES
-            ],
-            'service_categories': [
-                {'value': choice[0], 'label': choice[1]} 
-                for choice in SERVICE_CATEGORIES
-            ],
-            'size_categories': [
-                {'value': choice[0], 'label': choice[1]} 
-                for choice in SIZE_CATEGORIES
-            ]
-        }
-        
+    'product_types': [
+        {'value': choice[0], 'label': choice[1]}
+        for choice in Product.PRODUCT_TYPES
+    ],
+    'service_categories': [
+        {'value': choice[0], 'label': choice[1]}
+        for choice in Product.SERVICE_CATEGORIES
+    ],
+    'size_categories': [
+        {'value': choice[0], 'label': choice[1]}
+        for choice in Product.SIZE_CATEGORIES
+    ]
+}
+
         return Response(data)
 
 
-# Alternative function-based views if you prefer them over ViewSets
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.pagination import PageNumberPagination
+class PriceHistoryViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing PriceHistory records.
+    Provides read-only access for most users, with create/update/delete restricted to admins.
+    Supports filtering, searching, and sorting.
+    """
+    queryset = PriceHistory.objects.all().select_related('product')
+    pagination_class = PriceHistoryPagination
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = PriceHistoryFilter
+    search_fields = [
+        'product__animal_type', 'product__product_type', 'reason', 'changed_by'
+    ]
+    ordering_fields = ['effective_date', 'new_price', 'old_price', 'product__product_type', 'product__animal_type']
+    ordering = ['-effective_date'] # Default sorting
 
-class ProductPagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = 'limit'
-    max_page_size = 100
+    def get_permissions(self):
+        """
+        Set permissions based on action for PriceHistoryViewSet.
+        GET operations are read-only for authenticated users.
+        POST, PUT, PATCH, DELETE are restricted to IsAdminUser.
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [IsAuthenticatedOrReadOnly]
+        else: # create, update, partial_update, destroy
+            permission_classes = [IsAuthenticated, IsAdminUser]
+        return [permission() for permission in permission_classes]
 
-@api_view(['GET'])
-def product_list(request):
-    """Alternative function-based view for listing products."""
-    queryset = Product.objects.filter(is_active=True)
-    
-    # Apply filters
-    product_type = request.GET.get('product_type')
-    animal_type = request.GET.get('animal_type')
-    service_category = request.GET.get('service_category')
-    size_category = request.GET.get('size_category')
-    search = request.GET.get('search')
-    
-    if product_type:
-        queryset = queryset.filter(product_type=product_type)
-    if animal_type:
-        queryset = queryset.filter(animal_type__icontains=animal_type)
-    if service_category:
-        queryset = queryset.filter(service_category=service_category)
-    if size_category:
-        queryset = queryset.filter(size_category=size_category)
-    if search:
-        queryset = queryset.filter(animal_type__icontains=search)
-    
-    # Apply ordering
-    ordering = request.GET.get('ordering', '-last_price_update')
-    queryset = queryset.order_by(ordering)
-    
-    # Paginate
-    paginator = ProductPagination()
-    page = paginator.paginate_queryset(queryset, request)
-    
-    serializer = ProductSerializer(page, many=True)
-    return paginator.get_paginated_response(serializer.data)
+    def get_serializer_class(self):
+        if self.action in ['list', 'retrieve']:
+            return PriceHistoryListSerializer
+        elif self.action in ['create', 'update', 'partial_update']:
+            return PriceHistoryCreateUpdateSerializer
+        return PriceHistoryListSerializer
 
-@api_view(['GET'])
-def product_detail(request, pk):
-    """Alternative function-based view for product detail."""
-    product = get_object_or_404(Product, pk=pk)
-    
-    serializer = ProductDetailSerializer(product)
-    data = serializer.data
-    
-    if request.GET.get('include_price_history', '').lower() == 'true':
-        price_history = PriceHistory.objects.filter(
-            product=product
-        ).order_by('-effective_date')
-        data['price_history'] = PriceHistorySerializer(
-            price_history, many=True
-        ).data
-    
-    return Response(data)
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def product_create(request):
-    """Alternative function-based view for creating products."""
-    serializer = ProductCreateUpdateSerializer(data=request.data)
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        """
+        Create a new PriceHistory record.
+        Optionally updates the related Product's base_price and last_price_update.
+        """
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
 
-@api_view(['PUT', 'PATCH'])
-@permission_classes([IsAuthenticated])
-@transaction.atomic
-def product_update(request, pk):
-    """Alternative function-based view for updating products."""
-    product = get_object_or_404(Product, pk=pk)
-    old_price = product.base_price
-    
-    serializer = ProductCreateUpdateSerializer(
-        product, 
-        data=request.data, 
-        partial=request.method == 'PATCH'
-    )
-    
-    if serializer.is_valid():
-        new_price = serializer.validated_data.get('base_price')
-        if new_price and new_price != old_price:
-            PriceHistory.objects.create(
-                product=product,
-                old_price=old_price,
-                new_price=new_price,
-                effective_date=timezone.now(),
-                changed_by=request.user.username,
-                reason=request.data.get('reason', 'Price update')
-            )
-        
-        serializer.save()
-        return Response(serializer.data)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        product = serializer.validated_data['product']
+        new_price = serializer.validated_data['new_price']
+        effective_date = serializer.validated_data.get('effective_date', timezone.now())
 
-@api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
-def product_delete(request, pk):
-    """Alternative function-based view for deleting products."""
-    product = get_object_or_404(Product, pk=pk)
-    
-    # Soft delete by default
-    product.is_active = False
-    product.save()
-    
-    return Response(
-        {'message': 'Product deactivated successfully'}, 
-        status=status.HTTP_200_OK
-    )
+        # If old_price is not provided, try to get it from the product's current base_price
+        if 'old_price' not in serializer.validated_data:
+            serializer.validated_data['old_price'] = product.base_price
+
+        price_history = serializer.save()
+
+        # Update Product's base_price if this new history record is the most recent
+        latest_history = PriceHistory.objects.filter(product=product).order_by('-effective_date').first()
+        if latest_history and latest_history.pk == price_history.pk:
+            if product.base_price != new_price:
+                product.base_price = new_price
+                product.last_price_update = effective_date
+                product.save(update_fields=['base_price', 'last_price_update'])
+
+        return Response(PriceHistoryListSerializer(price_history, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        """
+        Update an existing PriceHistory record.
+        Restricted to admins.
+        Optionally updates the related Product's base_price if this is the latest record.
+        """
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        updated_price_history = serializer.save()
+
+        product = updated_price_history.product
+        new_record_new_price = updated_price_history.new_price
+        new_record_effective_date = updated_price_history.effective_date
+
+        latest_history = PriceHistory.objects.filter(product=product).order_by('-effective_date').first()
+
+        if latest_history and latest_history.pk == updated_price_history.pk:
+            if product.base_price != new_record_new_price:
+                product.base_price = new_record_new_price
+                product.last_price_update = new_record_effective_date
+                product.save(update_fields=['base_price', 'last_price_update'])
+        elif latest_history:
+            if product.base_price != latest_history.new_price:
+                 product.base_price = latest_history.new_price
+                 product.last_price_update = latest_history.effective_date
+                 product.save(update_fields=['base_price', 'last_price_update'])
+
+        return Response(PriceHistoryListSerializer(updated_price_history, context={'request': request}).data)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        """
+        Delete a PriceHistory record.
+        Restricted to admins.
+        Prevents deletion if it's the latest record influencing the Product's current price,
+        unless there's another record to fall back on.
+        """
+        instance = self.get_object()
+        product = instance.product
+
+        latest_history = PriceHistory.objects.filter(product=product).order_by('-effective_date').first()
+
+        if latest_history and latest_history.pk == instance.pk:
+            second_latest_history = PriceHistory.objects.filter(product=product).exclude(pk=instance.pk).order_by('-effective_date').first()
+
+            if second_latest_history:
+                product.base_price = second_latest_history.new_price
+                product.last_price_update = second_latest_history.effective_date
+                product.save(update_fields=['base_price', 'last_price_update'])
+            else:
+                return Response(
+                    {"detail": "Cannot delete the only price history record for this product without manual price adjustment."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+    @action(detail=False, methods=['get'])
+    def metadata(self, request):
+        """
+        GET /api/price-history/metadata/
+        Provides metadata about filterable and sortable fields for PriceHistory.
+        """
+        metadata = {
+            "filterable_fields": [
+                "product", "effective_date_gte", "effective_date_lte",
+                "changed_by", "product_animal_type", "product_product_type", "reason"
+            ],
+            "sortable_fields": self.ordering_fields,
+            "search_fields": self.search_fields,
+            "date_format": "YYYY-MM-DD",
+        }
+        return Response(metadata, status=status.HTTP_200_OK)

@@ -1,7 +1,7 @@
 from rest_framework import generics, status, filters, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
@@ -309,5 +309,11 @@ def artisan_stats(request, pk):
 
 
 class ArtisanViewSet(viewsets.ModelViewSet):
-    queryset = Artisan.objects.all()
+    queryset = Artisan.objects.all().order_by('name')  # Added ordering
     serializer_class = ArtisanSerializer
+    permission_classes = [AllowAny]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['is_active']
+    search_fields = ['name']
+    ordering_fields = ['name', 'created_date']
+    ordering = ['name']  # Default ordering

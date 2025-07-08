@@ -1,186 +1,524 @@
-from rest_framework import viewsets, status
+# jobs/views.py
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.db.models import Q, Sum, F, Count
+
+from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q
-from django.shortcuts import get_object_or_404
-from .models import Job, JobItem
+
+from .models import Job, JobItem, JobDelivery
 from .serializers import (
-    JobSerializer, JobCreateSerializer, JobUpdateSerializer, 
-    JobItemSerializer, JobItemLightSerializer
+    JobListSerializer,
+    JobDetailSerializer,
+    JobCreateUpdateSerializer,
+    JobItemDetailListSerializer,
+    JobItemCreateUpdateSerializer,
+    JobItemDeliverySerializer,
 )
-from products.models import Product
+from .filters import JobFilter, JobItemFilter
+
+
+class JobPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 class JobViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for Job model with full CRUD operations.
+    ViewSet for managing Job resources.
+    Supports CRUD operations for Jobs.
+    Nested routes for JobItems management.
     """
-    queryset = Job.objects.all().prefetch_related('items__artisan', 'items__product')
+    queryset = Job.objects.all().order_by('-created_date')
+    pagination_class = JobPagination
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['status', 'service_category']
-    search_fields = ['created_by']
-    ordering_fields = ['job_id', 'created_date', 'status']
-    ordering = ['-created_date']
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = JobFilter
+    search_fields = ['job_id', 'created_by', 'notes']
+    ordering_fields = ['created_date', 'status', 'service_category', 'total_cost', 'total_final_payment']
+    lookup_field = 'job_id'
 
     def get_serializer_class(self):
-        """Return appropriate serializer based on action."""
-        if self.action == 'create':
-            return JobCreateSerializer
-        elif self.action in ['update', 'partial_update']:
-            return JobUpdateSerializer
-        return JobSerializer
+        if self.action == 'list':
+            return JobListSerializer
+        elif self.action == 'retrieve':
+            return JobDetailSerializer
+        elif self.action in ['create', 'update', 'partial_update']:
+            return JobCreateUpdateSerializer
+        return JobListSerializer
 
-    def get_queryset(self):
-        """Filter queryset based on query parameters."""
-        queryset = super().get_queryset()
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user.username)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            job = serializer.save()
+            job.update_status()
+
+    def perform_destroy(self, instance):
+        # Check if any job items have generated payslips
+        if instance.items.filter(payslip_generated=True).exists():
+            return Response(
+                {"detail": "Cannot delete job as it has items with generated payslips. Reset payslips first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        instance.delete()
+
+    @action(detail=False, methods=['get'], url_path='dashboard')
+    def dashboard(self, request):
+        """
+        GET /api/jobs/dashboard/
+        Get job statistics and summary data.
+        """
+        stats = {
+            'total_jobs': Job.objects.count(),
+            'in_progress': Job.objects.filter(status='IN_PROGRESS').count(),
+            'partially_received': Job.objects.filter(status='PARTIALLY_RECEIVED').count(),
+            'completed': Job.objects.filter(status='COMPLETED').count(),
+            'total_cost': Job.objects.aggregate(
+                total=Sum(F('items__original_amount'))
+            )['total'] or 0,
+            'total_final_payment': Job.objects.aggregate(
+                total=Sum(F('items__final_payment'))
+            )['total'] or 0,
+        }
+        return Response(stats)
+
+    # --- Nested JobItem Actions ---
+
+    @action(detail=True, methods=['get'], url_path='items')
+    def list_job_items(self, request, job_id=None):
+        """
+        GET /api/jobs/{job_id}/items/
+        List all JobItems for a specific Job.
+        """
+        job = self.get_object()
+        queryset = job.items.all().select_related('artisan', 'product').order_by('id')
+
+        # Apply JobItemFilter
+        filter_instance = JobItemFilter(request.query_params, queryset=queryset)
+        queryset = filter_instance.qs
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = JobItemDetailListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = JobItemDetailListSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='items')
+    def create_job_item(self, request, job_id=None):
+        """
+        POST /api/jobs/{job_id}/items/
+        Create a new JobItem for a specific Job.
+        """
+        job = self.get_object()
+        serializer = JobItemCreateUpdateSerializer(data=request.data, context={'job': job})
+        serializer.is_valid(raise_exception=True)
         
-        # Search by created_by
-        search_query = self.request.query_params.get('search', '')
-        if search_query:
-            queryset = queryset.filter(
-                Q(created_by__icontains=search_query)
+        with transaction.atomic():
+            job_item = serializer.save()
+            job.update_status()
+        
+        return Response(JobItemDetailListSerializer(job_item).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='items/(?P<item_pk>[^/.]+)')
+    def retrieve_job_item(self, request, job_id=None, item_pk=None):
+        """
+        GET /api/jobs/{job_id}/items/{item_pk}/
+        Retrieve a specific JobItem for a Job.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(
+            JobItem.objects.select_related('artisan', 'product'), 
+            job=job, 
+            pk=item_pk
+        )
+        serializer = JobItemDetailListSerializer(job_item)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['put', 'patch'], url_path='items/(?P<item_pk>[^/.]+)')
+    def update_job_item(self, request, job_id=None, item_pk=None):
+        """
+        PUT/PATCH /api/jobs/{job_id}/items/{item_pk}/
+        Update a specific JobItem for a Job.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
+        
+        partial = request.method == 'PATCH'
+        serializer = JobItemCreateUpdateSerializer(job_item, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        
+        with transaction.atomic():
+            updated_job_item = serializer.save()
+            # Job status will be updated by job_item.save() itself
+        
+        return Response(JobItemDetailListSerializer(updated_job_item).data)
+
+    @action(detail=True, methods=['delete'], url_path='items/(?P<item_pk>[^/.]+)')
+    def destroy_job_item(self, request, job_id=None, item_pk=None):
+        """
+        DELETE /api/jobs/{job_id}/items/{item_pk}/
+        Delete a specific JobItem for a Job.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
+        
+        with transaction.atomic():
+            if job_item.payslip_generated:
+                return Response(
+                    {"detail": "Cannot delete JobItem as it has an associated payslip. Reset payslip first."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            job_item.delete()
+            job.update_status()
+        
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['post'], url_path='items/(?P<item_pk>[^/.]+)/reset-payslip')
+    def reset_job_item_payslip(self, request, job_id=None, item_pk=None):
+        """
+        POST /api/jobs/{job_id}/items/{item_pk}/reset-payslip/
+        Reset payslip status for a JobItem.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
+        
+        with transaction.atomic():
+            job_item.payslip_generated = False
+            job_item.save()
+        
+        return Response({"detail": "Payslip status reset successfully"})
+
+    # --- JobDelivery Actions ---
+
+    @action(detail=True, methods=['get'], url_path='items/(?P<item_pk>[^/.]+)/deliveries')
+    def list_job_item_deliveries(self, request, job_id=None, item_pk=None):
+        """
+        GET /api/jobs/{job_id}/items/{item_pk}/deliveries/
+        List all deliveries for a specific JobItem.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
+        queryset = job_item.deliveries.all().order_by('-delivery_date')
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = JobItemDeliverySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = JobItemDeliverySerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='items/(?P<item_pk>[^/.]+)/deliveries')
+    def create_job_item_delivery(self, request, job_id=None, item_pk=None):
+        """
+        POST /api/jobs/{job_id}/items/{item_pk}/deliveries/
+        Record a new delivery for a specific JobItem.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
+
+        serializer = JobItemDeliverySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            try:
+                delivery = serializer.save(job_item=job_item)
+                return Response(JobItemDeliverySerializer(delivery).data, status=status.HTTP_201_CREATED)
+            except ValueError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get'], url_path='items/(?P<item_pk>[^/.]+)/deliveries/(?P<delivery_pk>[^/.]+)')
+    def retrieve_job_item_delivery(self, request, job_id=None, item_pk=None, delivery_pk=None):
+        """
+        GET /api/jobs/{job_id}/items/{item_pk}/deliveries/{delivery_pk}/
+        Retrieve a specific delivery for a JobItem.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
+        delivery = get_object_or_404(JobDelivery, job_item=job_item, pk=delivery_pk)
+        
+        serializer = JobItemDeliverySerializer(delivery)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['put', 'patch'], url_path='items/(?P<item_pk>[^/.]+)/deliveries/(?P<delivery_pk>[^/.]+)')
+    def update_job_item_delivery(self, request, job_id=None, item_pk=None, delivery_pk=None):
+        """
+        PUT/PATCH /api/jobs/{job_id}/items/{item_pk}/deliveries/{delivery_pk}/
+        Update a specific delivery for a JobItem.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
+        delivery = get_object_or_404(JobDelivery, job_item=job_item, pk=delivery_pk)
+        
+        partial = request.method == 'PATCH'
+        serializer = JobItemDeliverySerializer(delivery, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        
+        with transaction.atomic():
+            try:
+                updated_delivery = serializer.save()
+                return Response(JobItemDeliverySerializer(updated_delivery).data)
+            except ValueError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['delete'], url_path='items/(?P<item_pk>[^/.]+)/deliveries/(?P<delivery_pk>[^/.]+)')
+    def destroy_job_item_delivery(self, request, job_id=None, item_pk=None, delivery_pk=None):
+        """
+        DELETE /api/jobs/{job_id}/items/{item_pk}/deliveries/{delivery_pk}/
+        Delete a specific delivery for a JobItem.
+        """
+        job = self.get_object()
+        job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
+        delivery = get_object_or_404(JobDelivery, job_item=job_item, pk=delivery_pk)
+        
+        with transaction.atomic():
+            delivery.delete()
+            # Recalculate JobItem totals
+            job_item.quantity_received = sum(d.quantity_received for d in job_item.deliveries.all())
+            job_item.quantity_accepted = sum(d.quantity_accepted for d in job_item.deliveries.all())
+            job_item.save()
+        
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['get'], url_path='summary')
+    def job_summary(self, request, job_id=None):
+        """
+        GET /api/jobs/{job_id}/summary/
+        Get detailed summary of a specific job.
+        """
+        job = self.get_object()
+        
+        # Get items summary
+        items_summary = job.items.aggregate(
+            total_items=Count('id'),
+            total_ordered=Sum('quantity_ordered'),
+            total_received=Sum('quantity_received'),
+            total_accepted=Sum('quantity_accepted'),
+            total_original_amount=Sum('original_amount'),
+            total_final_payment=Sum('final_payment')
+        )
+        
+        # Get delivery summary
+        delivery_summary = JobDelivery.objects.filter(job_item__job=job).aggregate(
+            total_deliveries=Count('id'),
+            total_delivered=Sum('quantity_received'),
+            total_accepted_delivered=Sum('quantity_accepted')
+        )
+        
+        # Get artisan summary
+        artisan_summary = job.items.values('artisan__name').annotate(
+            total_items=Count('id'),
+            total_ordered=Sum('quantity_ordered'),
+            total_received=Sum('quantity_received'),
+            total_accepted=Sum('quantity_accepted'),
+            total_payment=Sum('final_payment')
+        ).order_by('-total_payment')
+        
+        summary_data = {
+            'job': JobDetailSerializer(job).data,
+            'items_summary': items_summary,
+            'delivery_summary': delivery_summary,
+            'artisan_summary': list(artisan_summary)
+        }
+        
+        return Response(summary_data)
+
+
+class JobItemViewSet(viewsets.ModelViewSet):
+    """
+    Standalone ViewSet for JobItem resources.
+    Provides direct access to JobItems across all jobs.
+    """
+    queryset = JobItem.objects.all().select_related('artisan', 'product', 'job')
+    serializer_class = JobItemDetailListSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = JobItemFilter
+    search_fields = ['artisan__name', 'product__product_type', 'job__job_id']
+    ordering_fields = ['job__created_date', 'artisan__name', 'product__product_type', 'quantity_ordered']
+    pagination_class = JobPagination
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return JobItemCreateUpdateSerializer
+        return JobItemDetailListSerializer
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            job_item = serializer.save()
+            job_item.job.update_status()
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            job_item = serializer.save()
+            job_item.job.update_status()
+
+    def perform_destroy(self, instance):
+        if instance.payslip_generated:
+            return Response(
+                {"detail": "Cannot delete JobItem as it has an associated payslip. Reset payslip first."},
+                status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Filter by status
-        status_filter = self.request.query_params.get('status', '')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        
-        # Filter by service_category
-        category_filter = self.request.query_params.get('service_category', '')
-        if category_filter:
-            queryset = queryset.filter(service_category=category_filter)
-        
-        return queryset
+        with transaction.atomic():
+            job = instance.job
+            instance.delete()
+            job.update_status()
 
-    def list(self, request, *args, **kwargs):
-        """List jobs with optional filtering and searching."""
-        queryset = self.filter_queryset(self.get_queryset())
-        
-        # Get include_items parameter
-        include_items = request.query_params.get('include_items', 'false').lower() == 'true'
+    @action(detail=False, methods=['get'], url_path='pending-delivery')
+    def pending_delivery(self, request):
+        """
+        GET /api/job-items/pending-delivery/
+        Get all job items that have pending deliveries.
+        """
+        queryset = self.get_queryset().filter(
+            quantity_received__lt=F('quantity_ordered')
+        ).order_by('-job__created_date')
         
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            response_data = self.get_paginated_response(serializer.data)
-            
-            # Add summary statistics if requested
-            if request.query_params.get('include_stats', 'false').lower() == 'true':
-                total_cost = sum(job.total_cost for job in queryset)
-                total_final_payment = sum(job.total_final_payment for job in queryset)
-                response_data.data['stats'] = {
-                    'total_cost': total_cost,
-                    'total_final_payment': total_final_payment
-                }
-            
-            return response_data
+            return self.get_paginated_response(serializer.data)
         
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    def retrieve(self, request, *args, **kwargs):
-        """Retrieve a single job with optional item details."""
-        instance = self.get_object()
-        include_items = request.query_params.get('include_items', 'false').lower() == 'true'
-        
-        serializer = self.get_serializer(instance)
-        data = serializer.data
-        
-        # Include detailed items if requested
-        if include_items:
-            items = JobItem.objects.filter(job=instance).select_related('artisan', 'product')
-            data['items'] = JobItemSerializer(items, many=True).data
-        
-        return Response(data)
-
-    def destroy(self, request, *args, **kwargs):
-        """Delete a job with dependency checks."""
-        instance = self.get_object()
-        
-        # Check if job has items with received or accepted quantities
-        has_received_items = JobItem.objects.filter(
-            job=instance,
-            quantity_received__gt=0
-        ).exists()
-        
-        has_accepted_items = JobItem.objects.filter(
-            job=instance,
+    @action(detail=False, methods=['get'], url_path='pending-payslip')
+    def pending_payslip(self, request):
+        """
+        GET /api/job-items/pending-payslip/
+        Get all job items that have pending payslip generation.
+        """
+        queryset = self.get_queryset().filter(
+            payslip_generated=False,
             quantity_accepted__gt=0
-        ).exists()
-        
-        if has_received_items or has_accepted_items:
-            return Response(
-                {
-                    'error': 'Cannot delete job with received or accepted items. '
-                           'Please remove or reset item quantities first.'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        self.perform_destroy(instance)
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=True, methods=['get'])
-    def items(self, request, pk=None):
-        """Get job items for a specific job."""
-        job = self.get_object()
-        queryset = JobItem.objects.filter(job=job).select_related('artisan', 'product')
-        
-        # Filter by artisan_id if provided
-        artisan_id = request.query_params.get('artisan_id')
-        if artisan_id:
-            queryset = queryset.filter(artisan_id=artisan_id)
-        
-        # Filter by product_id if provided
-        product_id = request.query_params.get('product_id')
-        if product_id:
-            queryset = queryset.filter(product_id=product_id)
-        
-        # Sort by quantity_ordered or original_amount
-        ordering = request.query_params.get('ordering', 'id')
-        if ordering in ['quantity_ordered', 'original_amount', '-quantity_ordered', '-original_amount']:
-            queryset = queryset.order_by(ordering)
+        ).order_by('-job__created_date')
         
         page = self.paginate_queryset(queryset)
         if page is not None:
-            serializer = JobItemSerializer(page, many=True)
+            serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
         
-        serializer = JobItemSerializer(queryset, many=True)
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'])
-    def update_status(self, request, pk=None):
-        """Manually trigger status update for a job."""
-        job = self.get_object()
-        old_status = job.status
-        job.update_status()
+    @action(detail=True, methods=['post'], url_path='generate-payslip')
+    def generate_payslip(self, request, pk=None):
+        """
+        POST /api/job-items/{pk}/generate-payslip/
+        Mark a job item as having payslip generated.
+        """
+        job_item = self.get_object()
         
-        serializer = self.get_serializer(job)
-        return Response({
-            'message': f'Status updated from {old_status} to {job.status}',
-            'job': serializer.data
-        })
+        if job_item.quantity_accepted == 0:
+            return Response(
+                {"detail": "Cannot generate payslip for item with zero accepted quantity."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        with transaction.atomic():
+            job_item.payslip_generated = True
+            job_item.save()
+        
+        return Response({"detail": "Payslip generated successfully"})
 
-    @action(detail=False, methods=['get'])
-    def metadata(self, request):
-        """Get metadata for frontend form rendering."""
-        from products.models import Product
+    @action(detail=True, methods=['post'], url_path='reset-payslip')
+    def reset_payslip(self, request, pk=None):
+        """
+        POST /api/job-items/{pk}/reset-payslip/
+        Reset payslip status for a job item.
+        """
+        job_item = self.get_object()
         
-        return Response({
-            'status_choices': [
-                {'value': choice[0], 'label': choice[1]} 
-                for choice in Job.STATUS_CHOICES
-            ],
-            'service_categories': [
-                {'value': choice[0], 'label': choice[1]} 
-                for choice in Product.SERVICE_CATEGORIES
-            ],
-            'search_fields': ['created_by'],
-            'filterable_fields': ['status', 'service_category'],
-            'sortable_fields': ['job_id', 'created_date', 'total_cost']
-        })
+        with transaction.atomic():
+            job_item.payslip_generated = False
+            job_item.save()
+        
+        return Response({"detail": "Payslip status reset successfully"})
+
+
+class JobDeliveryViewSet(viewsets.ModelViewSet):
+    """
+    Standalone ViewSet for JobDelivery resources.
+    Provides direct access to all deliveries across all jobs.
+    """
+    queryset = JobDelivery.objects.all().select_related('job_item__job', 'job_item__artisan', 'job_item__product')
+    serializer_class = JobItemDeliverySerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['job_item__artisan__name', 'job_item__product__product_type', 'job_item__job__job_id']
+    ordering_fields = ['delivery_date', 'quantity_received', 'quantity_accepted']
+    pagination_class = JobPagination
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            try:
+                delivery = serializer.save()
+                return delivery
+            except ValueError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            try:
+                delivery = serializer.save()
+                return delivery
+            except ValueError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            job_item = instance.job_item
+            instance.delete()
+            # Recalculate JobItem totals
+            job_item.quantity_received = sum(d.quantity_received for d in job_item.deliveries.all())
+            job_item.quantity_accepted = sum(d.quantity_accepted for d in job_item.deliveries.all())
+            job_item.save()
+
+    @action(detail=False, methods=['get'], url_path='recent')
+    def recent_deliveries(self, request):
+        """
+        GET /api/job-deliveries/recent/
+        Get recent deliveries (last 30 days).
+        """
+        from datetime import datetime, timedelta
+        
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        queryset = self.get_queryset().filter(
+            delivery_date__gte=thirty_days_ago
+        ).order_by('-delivery_date')
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='with-rejections')
+    def with_rejections(self, request):
+        """
+        GET /api/job-deliveries/with-rejections/
+        Get deliveries that have rejections.
+        """
+        queryset = self.get_queryset().filter(
+            quantity_received__gt=F('quantity_accepted')
+        ).order_by('-delivery_date')
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)

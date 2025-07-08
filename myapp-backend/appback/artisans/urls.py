@@ -4,10 +4,10 @@ from rest_framework.routers import DefaultRouter
 from .views import ArtisanViewSet # Import only the ViewSet now
 
 router = DefaultRouter()
-router.register(r'artisans', ArtisanViewSet, basename='artisan')
+router.register(r'', ArtisanViewSet, basename='artisan')
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
     # All custom actions are now nested under /api/artisans/{pk}/ or /api/artisans/
     # E.g., /api/artisans/{pk}/activate/
     # /api/artisans/{pk}/deactivate/
