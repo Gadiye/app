@@ -1,4 +1,5 @@
 "use client"
+
 import { useState, useEffect, useCallback } from "react"
 import type {
   Artisan,
@@ -9,16 +10,19 @@ import type {
   FinishedStock,
   Payslip,
   PriceHistory,
+  CreateJobPayload,
+  JobItemPayload,
+  ProductPrice,
 } from "../lib/api"
 
 // --- Generic API Hook ---
 export function useApi<T>(
-  apiCall: () => Promise<T>, 
+  apiCall: () => Promise<T>,
   dependencies: any[] = [],
-  options: { 
+  options: {
     immediate?: boolean
     onSuccess?: (data: T) => void
-    onError?: (error: string) => void 
+    onError?: (error: string) => void
   } = {}
 ) {
   const [data, setData] = useState<T | null>(null)
@@ -68,10 +72,16 @@ export function useApi<T>(
   return { data, loading, error, refetch, reset }
 }
 
-// --- Specific Hooks (with dynamic import) ---
+// --- List Fetching Hooks ---
 export function useArtisans() {
   return useApi<Artisan[]>(() =>
     import("../lib/api").then(({ api }) => api.artisans.list())
+  )
+}
+
+export function useProducts() {
+  return useApi<Product[]>(() =>
+    import("../lib/api").then(({ api }) => api.products.list())
   )
 }
 
@@ -93,12 +103,6 @@ export function useOrders() {
   )
 }
 
-export function useProducts() {
-  return useApi<Product[]>(() =>
-    import("../lib/api").then(({ api }) => api.products.list())
-  )
-}
-
 export function useFinishedStock() {
   return useApi<FinishedStock[]>(() =>
     import("../lib/api").then(({ api }) => api.finishedStock.list())
@@ -111,7 +115,7 @@ export function usePayslips() {
   )
 }
 
-// --- Individual Resource Hooks ---
+// --- Individual Resource Fetching Hooks ---
 export function useArtisan(id: number, options?: { immediate?: boolean }) {
   return useApi<Artisan>(
     () => import("../lib/api").then(({ api }) => api.artisans.get(id)),
@@ -136,14 +140,6 @@ export function useJob(id: number, options?: { immediate?: boolean }) {
   )
 }
 
-export function useOrder(id: number, options?: { immediate?: boolean }) {
-  return useApi<Order>(
-    () => import("../lib/api").then(({ api }) => api.orders.get(id)),
-    [id],
-    options
-  )
-}
-
 export function useProduct(id: number, options?: { immediate?: boolean }) {
   return useApi<Product>(
     () => import("../lib/api").then(({ api }) => api.products.get(id)),
@@ -152,11 +148,43 @@ export function useProduct(id: number, options?: { immediate?: boolean }) {
   )
 }
 
-// --- Price History Hook (Smart Filtering) ---
-export function usePriceHistory(
-  productId?: number,
-  params?: URLSearchParams
+// --- Smart Lookup Hook ---
+export function useProductPrice(
+  productType?: string,
+  animalType?: string,
+  serviceCategory?: string,
+  sizeCategory?: string,
+  options?: { immediate?: boolean; enabled?: boolean }
 ) {
+  const params = new URLSearchParams()
+  if (productType) params.append("product_type", productType)
+  if (animalType) params.append("animal_type", animalType)
+  if (serviceCategory) params.append("service_category", serviceCategory)
+  if (sizeCategory) params.append("size_category", sizeCategory)
+
+  const enabled =
+    options?.enabled !== false &&
+    productType &&
+    animalType &&
+    serviceCategory
+
+  return useApi<ProductPrice>(
+    () =>
+      enabled
+        ? import("../lib/api").then(({ api }) =>
+            api.products.getPrice(params)
+          )
+        : Promise.resolve({ price: 0 }),
+    [productType, animalType, serviceCategory, sizeCategory, enabled],
+    {
+      ...options,
+      immediate: options?.immediate !== false && enabled,
+    }
+  )
+}
+
+// --- Price History ---
+export function usePriceHistory(productId?: number, params?: URLSearchParams) {
   return useApi<PriceHistory[]>(
     () =>
       import("../lib/api").then(({ api }) =>
@@ -168,85 +196,16 @@ export function usePriceHistory(
   )
 }
 
-// --- Mutation Hooks ---
-export function useCreateArtisan() {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const create = useCallback(async (data: Partial<Artisan>) => {
-    try {
-      setLoading(true)
-      setError(null)
-      const { api } = await import("../lib/api")
-      const result = await api.artisans.create(data)
-      return result
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An error occurred"
-      setError(errorMessage)
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  return { create, loading, error }
-}
-
-export function useUpdateArtisan() {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const update = useCallback(async (id: number, data: Partial<Artisan>) => {
-    try {
-      setLoading(true)
-      setError(null)
-      const { api } = await import("../lib/api")
-      const result = await api.artisans.update(id, data)
-      return result
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An error occurred"
-      setError(errorMessage)
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  return { update, loading, error }
-}
-
-export function useDeleteArtisan() {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const delete_ = useCallback(async (id: number) => {
-    try {
-      setLoading(true)
-      setError(null)
-      const { api } = await import("../lib/api")
-      await api.artisans.delete(id)
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An error occurred"
-      setError(errorMessage)
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  return { delete: delete_, loading, error }
-}
-
+// --- Mutations ---
 export function useCreateJob() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [jobResponse, setJobResponse] = useState<any>(null)
+  const [jobResponse, setJobResponse] = useState<Job | null>(null)
 
-  const createJob = useCallback(async (data: any) => {
+  const createJob = useCallback(async (data: CreateJobPayload) => {
     try {
       setLoading(true)
       setError(null)
-      setJobResponse(null)
       const { api } = await import("../lib/api")
       const result = await api.jobs.create(data)
       setJobResponse(result)
@@ -261,4 +220,23 @@ export function useCreateJob() {
   }, [])
 
   return { createJob, loading, error, jobResponse }
+}
+
+// --- Exports ---
+export {
+  useApi,
+  useArtisans,
+  useProducts,
+  useCustomers,
+  useJobs,
+  useOrders,
+  useFinishedStock,
+  usePayslips,
+  useArtisan,
+  useCustomer,
+  useJob,
+  useProduct,
+  useProductPrice,  // ✅ Make sure this is exported
+  usePriceHistory,
+  useCreateJob,
 }

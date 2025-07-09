@@ -9,6 +9,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.utils import timezone
 from datetime import datetime
+from rest_framework.decorators import api_view
+from .models import Product, PriceHistory
 
 from .models import Product, PriceHistory
  # Import choices directly
@@ -383,3 +385,34 @@ class PriceHistoryViewSet(viewsets.ModelViewSet):
             "date_format": "YYYY-MM-DD",
         }
         return Response(metadata, status=status.HTTP_200_OK)
+    
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Product
+
+@api_view(['GET'])
+def get_price(request):
+    """
+    GET /api/products/get_price/?product_type=...&animal_type=...&service_category=...&size_category=...
+    Returns the base price for a matching product, or 0 if not found.
+    """
+    product_type = request.GET.get("product_type")
+    animal_type = request.GET.get("animal_type")
+    service_category = request.GET.get("service_category")
+    size_category = request.GET.get("size_category")
+
+    if not all([product_type, animal_type, service_category, size_category]):
+        return Response({"error": "Missing required parameters."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        product = Product.objects.get(
+            product_type=product_type,
+            animal_type=animal_type,
+            service_category=service_category,
+            size_category=size_category,
+            is_active=True
+        )
+        return Response({"price": product.base_price}, status=status.HTTP_200_OK)
+    except Product.DoesNotExist:
+        return Response({"price": 0}, status=status.HTTP_200_OK)
