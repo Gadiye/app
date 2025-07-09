@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from datetime import datetime, date, timedelta
 from decimal import Decimal
+from django.core.files.base import ContentFile
 
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action

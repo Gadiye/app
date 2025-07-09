@@ -1,0 +1,30 @@
+# Python
+*.pyc
+__pycache__/
+db.sqlite3
+
+# Virtual environment
+myproject_env/
+
+# VS Code settings (optional)
+.vscode/
+
+# OS files
+.DS_Store
+venv
+appback/venv
+appback/db.sqlite3
+appback/appback/__pycache__
+appback/payslips/__pycache__
+appback/products/__pycache__
+appback/artisans/__pycache__
+appback/customers/__pycache__
+appback/customers/migrations/__pycache__
+appback/inventory/__pycache__
+appback/inventory/migrations/__pycache__
+appback/jobs/__pycache__
+appback/jobs/migrations/__pycache__
+appback/orders/__pycache__
+appback/orders/migrations/__pycache__
+appback/payslips/migrations/__pycache__
+appback/products/migrations/__pycache__

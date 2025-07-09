@@ -2,6 +2,7 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.db.models import Q, Sum, F, Count
+from rest_framework.permissions import AllowAny
 
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
@@ -36,7 +37,7 @@ class JobViewSet(viewsets.ModelViewSet):
     """
     queryset = Job.objects.all().order_by('-created_date')
     pagination_class = JobPagination
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = JobFilter
     search_fields = ['job_id', 'created_by', 'notes']
