@@ -222,21 +222,20 @@ export function useCreateJob() {
   return { createJob, loading, error, jobResponse }
 }
 
-// --- Exports ---
-export {
-  useApi,
-  useArtisans,
-  useProducts,
-  useCustomers,
-  useJobs,
-  useOrders,
-  useFinishedStock,
-  usePayslips,
-  useArtisan,
-  useCustomer,
-  useJob,
-  useProduct,
-  useProductPrice,  // ✅ Make sure this is exported
-  usePriceHistory,
-  useCreateJob,
+// --- Types for Job Creation ---
+export interface JobItemPayload {
+  artisan: number;
+  product_type: string;
+  animal_type: string;
+  size_category: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
 }
+
+export interface CreateJobPayload {
+  service_category: string;
+  notes?: string;
+  job_items: JobItemPayload[];
+}
+

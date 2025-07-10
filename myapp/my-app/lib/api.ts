@@ -1,3 +1,5 @@
+
+
 // API configuration and base functions
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/"
 
@@ -196,7 +198,12 @@ export const api = {
     getPriceHistory: (productId: number, params?: URLSearchParams) =>
       apiRequest<PriceHistory[]>(`/products/${productId}/price-history/?${params?.toString() || ''}`),
     getMetadata: () => apiRequest<any>('/products/metadata/'),
+
+    getPrice: (params: URLSearchParams) =>
+      apiRequest<{ price: number }>(`/products/get_price/?${params.toString()}`),
   },
+
+    
 
   // Artisans
   artisans: {
