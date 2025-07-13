@@ -1,76 +1,14 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertTriangle, Package, TrendingUp, TrendingDown } from "lucide-react"
+"use client"
 
-// Mock finished stock data
-const finishedStock = [
-  {
-    id: 1,
-    productType: "SITTING_ANIMAL",
-    animalType: "Elephant",
-    sizeCategory: "MEDIUM",
-    quantity: 12,
-    averageCost: 30.0,
-    sellingPrice: 45.0,
-    totalValue: 360.0,
-    lastUpdated: "2024-01-20",
-    reorderLevel: 5,
-    status: "IN_STOCK",
-  },
-  {
-    id: 2,
-    productType: "ANIMAL_MASKS",
-    animalType: "Lion",
-    sizeCategory: "LARGE",
-    quantity: 8,
-    averageCost: 35.0,
-    sellingPrice: 55.0,
-    totalValue: 280.0,
-    lastUpdated: "2024-01-19",
-    reorderLevel: 10,
-    status: "IN_STOCK",
-  },
-  {
-    id: 3,
-    productType: "YOGA_BOWLS",
-    animalType: "Generic",
-    sizeCategory: "MEDIUM",
-    quantity: 3,
-    averageCost: 25.0,
-    sellingPrice: 35.0,
-    totalValue: 75.0,
-    lastUpdated: "2024-01-18",
-    reorderLevel: 8,
-    status: "LOW_STOCK",
-  },
-  {
-    id: 4,
-    productType: "STANDING_ANIMAL",
-    animalType: "Giraffe",
-    sizeCategory: "LARGE",
-    quantity: 0,
-    averageCost: 40.0,
-    sellingPrice: 60.0,
-    totalValue: 0.0,
-    lastUpdated: "2024-01-17",
-    reorderLevel: 5,
-    status: "OUT_OF_STOCK",
-  },
-  {
-    id: 5,
-    productType: "CHOPSTICK_HOLDERS",
-    animalType: "Bird",
-    sizeCategory: "SMALL",
-    quantity: 20,
-    averageCost: 15.0,
-    sellingPrice: 25.0,
-    totalValue: 300.0,
-    lastUpdated: "2024-01-16",
-    reorderLevel: 10,
-    status: "IN_STOCK",
-  },
-]
+import { useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Plus, Edit, Package, DollarSign, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { useFinishedStock } from '@/hooks/useResource';
 
 function getStockStatusColor(status: string) {
   switch (status) {
@@ -99,57 +37,110 @@ function getStockStatusIcon(status: string) {
 }
 
 export default function FinishedStockPage() {
-  const totalItems = finishedStock.reduce((sum, item) => sum + item.quantity, 0)
-  const totalValue = finishedStock.reduce((sum, item) => sum + item.totalValue, 0)
-  const lowStockItems = finishedStock.filter((item) => item.status === "LOW_STOCK").length
-  const outOfStockItems = finishedStock.filter((item) => item.status === "OUT_OF_STOCK").length
+  const { data: finishedStock, loading, error, refetch } = useFinishedStock();
+
+  // Ensure finishedStock is an array for calculations, even if null/undefined initially
+  const safeFinishedStock = Array.isArray(finishedStock) ? finishedStock : [];
+
+  // Calculate statistics
+  const totalProducts = safeFinishedStock.length;
+  const totalQuantity = safeFinishedStock.reduce((sum, item) => sum + item.quantity, 0);
+  const totalValue = safeFinishedStock.reduce((sum, item) => sum + (item.quantity * item.average_cost), 0);
+  const lastUpdated = safeFinishedStock.length > 0 ? new Date(Math.max(...safeFinishedStock.map(item => new Date(item.last_updated).getTime()))).toLocaleDateString() : 'N/A';
+
+  // Filter for low and out of stock items
+  const lowStockItems = safeFinishedStock.filter((item: any) => item.quantity <= item.product.reorder_level && item.quantity > 0).length;
+  const outOfStockItems = safeFinishedStock.filter((item: any) => item.quantity === 0).length;
+
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 mt-8">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
+        <Button onClick={refetch} className="mt-4">Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold">Finished Stock</h1>
-        <p className="text-muted-foreground mt-2">Manage finished products ready for customer orders</p>
+        <h1 className="text-3xl font-bold">Finished Stock Overview</h1>
+        <p className="text-muted-foreground mt-2">Current inventory of finished products</p>
       </div>
 
-      {/* Stock Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Total Items</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalItems}</div>
-            <p className="text-xs text-muted-foreground">Ready for sale</p>
+            <div className="text-2xl font-bold">{totalProducts}</div>
+            <p className="text-xs text-muted-foreground">Unique items in stock</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Quantity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalQuantity} units</div>
+            <p className="text-xs text-muted-foreground">Combined units across all products</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Total Stock Value</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${totalValue.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Inventory value</p>
+            <p className="text-xs text-muted-foreground">Based on average cost</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
+            <CardTitle className="text-sm font-medium">Last Updated</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{lowStockItems}</div>
-            <p className="text-xs text-muted-foreground">Items below reorder level</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Out of Stock</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{outOfStockItems}</div>
-            <p className="text-xs text-muted-foreground">Items unavailable</p>
+            <div className="text-2xl font-bold">{lastUpdated}</div>
+            <p className="text-xs text-muted-foreground">Most recent inventory change</p>
           </CardContent>
         </Card>
       </div>
@@ -166,24 +157,32 @@ export default function FinishedStockPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {finishedStock
-                .filter((item) => item.status === "OUT_OF_STOCK" || item.status === "LOW_STOCK")
-                .map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-2 bg-white rounded border">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{item.productType.replace(/_/g, " ")}</Badge>
-                      <span className="text-sm">
-                        {item.animalType} ({item.sizeCategory})
-                      </span>
+              {safeFinishedStock
+                .filter((item) => item.quantity <= item.product.reorder_level || item.quantity === 0)
+                .map((item) => {
+                  let status = "IN_STOCK";
+                  if (item.quantity === 0) {
+                    status = "OUT_OF_STOCK";
+                  } else if (item.quantity <= item.product.reorder_level) {
+                    status = "LOW_STOCK";
+                  }
+                  return (
+                    <div key={item.id} className="flex items-center justify-between p-2 bg-white rounded border">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{item.product.product_type.replace(/_/g, " ")}</Badge>
+                        <span className="text-sm">
+                          {item.product.animal_type} ({item.product.size_category.replace(/_/g, " ")})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">
+                          {item.quantity} / {item.product.reorder_level} minimum
+                        </span>
+                        <Badge variant={getStockStatusColor(status)}>{status.replace("_", " ")}</Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">
-                        {item.quantity} / {item.reorderLevel} minimum
-                      </span>
-                      <Badge variant={getStockStatusColor(item.status)}>{item.status.replace("_", " ")}</Badge>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           </CardContent>
         </Card>
@@ -206,54 +205,62 @@ export default function FinishedStockPage() {
                 <TableHead className="text-right">Cost</TableHead>
                 <TableHead className="text-right">Selling Price</TableHead>
                 <TableHead className="text-right">Margin</TableHead>
-                <TableHead className="text-right">Total Value</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Last Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {finishedStock.map((item) => {
-                const margin = ((item.sellingPrice - item.averageCost) / item.sellingPrice) * 100
+              {safeFinishedStock.map((item) => {
+                const margin = ((item.product.base_price - item.average_cost) / item.product.base_price) * 100;
+                let status = "IN_STOCK";
+                if (item.quantity === 0) {
+                  status = "OUT_OF_STOCK";
+                } else if (item.quantity <= item.product.reorder_level) {
+                  status = "LOW_STOCK";
+                }
                 return (
                   <TableRow key={item.id}>
                     <TableCell>
-                      <Badge variant="outline">{item.productType.replace(/_/g, " ")}</Badge>
+                      <Badge variant="outline">{item.product.product_type.replace(/_/g, " ")}</Badge>
                     </TableCell>
-                    <TableCell>{item.animalType}</TableCell>
-                    <TableCell>{item.sizeCategory}</TableCell>
+                    <TableCell>{item.product.animal_type}</TableCell>
+                    <TableCell>{item.product.size_category.replace(/_/g, " ")}</TableCell>
                     <TableCell className="text-right font-medium">
                       {item.quantity}
-                      {item.quantity <= item.reorderLevel && item.quantity > 0 && (
+                      {item.quantity <= item.product.reorder_level && item.quantity > 0 && (
                         <span className="text-yellow-600 ml-1">⚠</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">${item.averageCost.toFixed(2)}</TableCell>
-                    <TableCell className="text-right font-medium">${item.sellingPrice.toFixed(2)}</TableCell>
+                    <TableCell>${item.average_cost.toFixed(2)}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      ${item.product.base_price.toFixed(2)}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {margin > 40 ? (
+                        {margin > 0 ? (
                           <TrendingUp className="h-3 w-3 text-green-500" />
                         ) : (
                           <TrendingDown className="h-3 w-3 text-red-500" />
                         )}
-                        <span className={margin > 40 ? "text-green-600" : "text-red-600"}>{margin.toFixed(1)}%</span>
+                        <span className={margin > 0 ? "text-green-600" : "text-red-600"}>{margin.toFixed(1)}%</span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right font-medium">${item.totalValue.toFixed(2)}</TableCell>
                     <TableCell>
-                      <Badge variant={getStockStatusColor(item.status)} className="flex items-center gap-1 w-fit">
-                        {getStockStatusIcon(item.status)}
-                        {item.status.replace("_", " ")}
+                      <Badge variant={getStockStatusColor(status)} className="flex items-center gap-1 w-fit">
+                        {getStockStatusIcon(status)}
+                        {status.replace("_", " ")}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{item.lastUpdated}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {new Date(item.last_updated).toLocaleDateString()}
+                    </TableCell>
                   </TableRow>
-                )
+                );
               })}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

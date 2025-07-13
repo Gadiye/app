@@ -1,55 +1,100 @@
+"use client"
+
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Plus, Eye, CheckCircle } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { useJobs } from '@/hooks/useResource';
 
-// Mock data
-const jobs = [
-  {
-    id: 1024,
-    createdDate: "2024-01-15",
-    serviceCategory: "CARVING",
-    status: "IN_PROGRESS",
-    artisan: "John Smith",
-    totalCost: 480.0,
-    itemCount: 12,
-    productType: "Elephant Figurines",
-  },
-  {
-    id: 1025,
-    createdDate: "2024-01-14",
-    serviceCategory: "PAINTING",
-    status: "IN_PROGRESS",
-    artisan: "Maria Garcia",
-    totalCost: 320.0,
-    itemCount: 8,
-    productType: "Lion Masks",
-  },
-  {
-    id: 1026,
-    createdDate: "2024-01-13",
-    serviceCategory: "FINISHING",
-    status: "COMPLETED",
-    artisan: "Carlos Rodriguez",
-    totalCost: 675.0,
-    itemCount: 15,
-    productType: "Yoga Bowls",
-  },
-  {
-    id: 1023,
-    createdDate: "2024-01-12",
-    serviceCategory: "SANDING",
-    status: "COMPLETED",
-    artisan: "Anna Johnson",
-    totalCost: 240.0,
-    itemCount: 6,
-    productType: "Bird Sculptures",
-  },
-]
+// Type definitions
+export interface JobListEntry {
+  job_id: number;
+  created_date: string;
+  created_by: string;
+  status: "IN_PROGRESS" | "PARTIALLY_RECEIVED" | "COMPLETED";
+  status_display: string;
+  service_category: string;
+  service_category_display: string;
+  notes?: string | null;
+  total_cost: string;
+  total_final_payment: string;
+}
+
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
 
 export default function JobsPage() {
+  const { data: jobs, loading, error, refetch } = useJobs();
+
+  // Since useJobs now returns JobListEntry[] directly (normalized in the hook)
+  const safeJobs: JobListEntry[] = Array.isArray(jobs) ? jobs : [];
+
+  const activeJobs = safeJobs.filter((job: JobListEntry) => job.status === "IN_PROGRESS").length;
+  const totalActiveJobValue = safeJobs
+    .filter((job: JobListEntry) => job.status === "IN_PROGRESS")
+    .reduce((sum: number, job: JobListEntry) => {
+      const cost = parseFloat(job.total_cost);
+      return sum + (isNaN(cost) ? 0 : cost);
+    }, 0);
+
+  // Count completed jobs
+  const completedJobs = safeJobs.filter((job: JobListEntry) => job.status === "COMPLETED").length;
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 mt-8">
+          {[...Array(3)].map((_, i) => (
+            <Card key={`skeleton-card-${i}`}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>
+            {error && typeof error === 'object' && 'message' in error 
+              ? (error as Error).message 
+              : "An unknown error occurred."}
+          </AlertDescription>
+        </Alert>
+        <Button onClick={refetch} className="mt-4">Retry</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto p-6">
       <div className="mb-8">
@@ -82,7 +127,7 @@ export default function JobsPage() {
             <CardTitle className="text-sm font-medium">Active Jobs</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{jobs.filter((job) => job.status === "IN_PROGRESS").length}</div>
+            <div className="text-2xl font-bold">{activeJobs}</div>
             <p className="text-xs text-muted-foreground">Currently in progress</p>
           </CardContent>
         </Card>
@@ -93,11 +138,7 @@ export default function JobsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              $
-              {jobs
-                .filter((job) => job.status === "IN_PROGRESS")
-                .reduce((sum, job) => sum + job.totalCost, 0)
-                .toFixed(2)}
+              ${totalActiveJobValue.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">Active jobs value</p>
           </CardContent>
@@ -105,10 +146,10 @@ export default function JobsPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Completed This Week</CardTitle>
+            <CardTitle className="text-sm font-medium">Completed Jobs</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{jobs.filter((job) => job.status === "COMPLETED").length}</div>
+            <div className="text-2xl font-bold">{completedJobs}</div>
             <p className="text-xs text-muted-foreground">Jobs finished</p>
           </CardContent>
         </Card>
@@ -127,40 +168,50 @@ export default function JobsPage() {
                 <TableHead>Job ID</TableHead>
                 <TableHead>Date Created</TableHead>
                 <TableHead>Service</TableHead>
-                <TableHead>Artisan</TableHead>
-                <TableHead>Product Type</TableHead>
-                <TableHead>Items</TableHead>
+                <TableHead>Created By</TableHead>
+                <TableHead>Artisans</TableHead>
                 <TableHead>Total Cost</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {jobs.map((job) => (
-                <TableRow key={job.id}>
-                  <TableCell className="font-medium">#{job.id}</TableCell>
-                  <TableCell>{job.createdDate}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{job.serviceCategory}</Badge>
-                  </TableCell>
-                  <TableCell>{job.artisan}</TableCell>
-                  <TableCell>{job.productType}</TableCell>
-                  <TableCell>{job.itemCount}</TableCell>
-                  <TableCell className="font-medium">${job.totalCost.toFixed(2)}</TableCell>
-                  <TableCell>
-                    <Badge variant={job.status === "COMPLETED" ? "default" : "secondary"}>
-                      {job.status.replace("_", " ")}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Link href={`/jobs/${job.id}`}>
-                      <Button variant="ghost" size="sm">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </Link>
+              {safeJobs.length === 0 ? (
+                <TableRow key="no-jobs-row">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    No jobs found
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                safeJobs.map((job: JobListEntry) => (
+                  <TableRow key={job.job_id}>
+                    <TableCell className="font-medium">#{job.job_id}</TableCell>
+                    <TableCell>{new Date(job.created_date).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{job.service_category}</Badge>
+                    </TableCell>
+                    <TableCell>{job.created_by}</TableCell>
+                    <TableCell>
+                      {job.artisans_involved && job.artisans_involved.length > 0
+                        ? job.artisans_involved.join(', ')
+                        : 'N/A'}
+                    </TableCell>
+                    <TableCell className="font-medium">${Number(job.total_cost).toFixed(2)}</TableCell>
+                    <TableCell>
+                      <Badge variant={job.status === "COMPLETED" ? "default" : "secondary"}>
+                        {job.status?.replace(/_/g, " ") || "N/A"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/jobs/${job.job_id}`}>
+                        <Button variant="ghost" size="sm">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

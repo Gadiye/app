@@ -413,6 +413,6 @@ def get_price(request):
             size_category=size_category,
             is_active=True
         )
-        return Response({"price": product.base_price}, status=status.HTTP_200_OK)
+        return Response({"id": product.id, "price": product.base_price}, status=status.HTTP_200_OK)
     except Product.DoesNotExist:
-        return Response({"price": 0}, status=status.HTTP_200_OK)
+        return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)

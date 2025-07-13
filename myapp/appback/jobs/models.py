@@ -38,6 +38,10 @@ class Job(models.Model):
             self.status = 'COMPLETED'
         self.save()
     
+    @property
+    def artisans_involved(self):
+        return list(self.items.values_list('artisan__name', flat=True).distinct())
+
     def __str__(self):
         return f"Job #{self.job_id}"
 

@@ -113,21 +113,7 @@ class JobViewSet(viewsets.ModelViewSet):
         serializer = JobItemDetailListSerializer(queryset, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'], url_path='items')
-    def create_job_item(self, request, job_id=None):
-        """
-        POST /api/jobs/{job_id}/items/
-        Create a new JobItem for a specific Job.
-        """
-        job = self.get_object()
-        serializer = JobItemCreateUpdateSerializer(data=request.data, context={'job': job})
-        serializer.is_valid(raise_exception=True)
-        
-        with transaction.atomic():
-            job_item = serializer.save()
-            job.update_status()
-        
-        return Response(JobItemDetailListSerializer(job_item).data, status=status.HTTP_201_CREATED)
+    
 
     @action(detail=True, methods=['get'], url_path='items/(?P<item_pk>[^/.]+)')
     def retrieve_job_item(self, request, job_id=None, item_pk=None):
@@ -227,15 +213,37 @@ class JobViewSet(viewsets.ModelViewSet):
         job = self.get_object()
         job_item = get_object_or_404(JobItem, job=job, pk=item_pk)
 
+        # --- Validation ---
+        remaining_quantity = job_item.quantity_ordered - job_item.quantity_received
+        if remaining_quantity <= 0:
+            return Response(
+                {"detail": "This item has already been fully received."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         serializer = JobItemDeliverySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        quantity_received = serializer.validated_data.get('quantity_received', 0)
+        if quantity_received > remaining_quantity:
+            return Response(
+                {"detail": f"Cannot receive {quantity_received} pieces. Only {remaining_quantity} pieces remain."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --- Create Delivery and Update Parent ---
         with transaction.atomic():
-            try:
-                delivery = serializer.save(job_item=job_item)
-                return Response(JobItemDeliverySerializer(delivery).data, status=status.HTTP_201_CREATED)
-            except ValueError as e:
-                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # Create the delivery record
+            delivery = serializer.save(job_item=job_item)
+            
+            # ** FIX: Explicitly update the parent JobItem totals **
+            job_item.quantity_received += delivery.quantity_received
+            job_item.quantity_accepted += delivery.quantity_accepted
+            job_item.save()  # This will trigger the parent Job's status update via the model's save method
+
+            # Return the UPDATED JobItem, which is more useful for the frontend
+            response_serializer = JobItemDetailListSerializer(job_item)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['get'], url_path='items/(?P<item_pk>[^/.]+)/deliveries/(?P<delivery_pk>[^/.]+)')
     def retrieve_job_item_delivery(self, request, job_id=None, item_pk=None, delivery_pk=None):
@@ -265,11 +273,12 @@ class JobViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         
         with transaction.atomic():
-            try:
-                updated_delivery = serializer.save()
-                return Response(JobItemDeliverySerializer(updated_delivery).data)
-            except ValueError as e:
-                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # This updates the delivery... 
+            updated_delivery = serializer.save()
+
+            # Return the UPDATED JobItem, which is more useful for the frontend
+            response_serializer = JobItemDetailListSerializer(job_item)
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['delete'], url_path='items/(?P<item_pk>[^/.]+)/deliveries/(?P<delivery_pk>[^/.]+)')
     def destroy_job_item_delivery(self, request, job_id=None, item_pk=None, delivery_pk=None):

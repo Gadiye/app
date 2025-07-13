@@ -1,7 +1,7 @@
-
+import { PaginatedResponse, JobListEntry, } from '@/types'; // Assuming types are in @/types
 
 // API configuration and base functions
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
 
 // Types based on your Django models
 export interface Product {
@@ -39,23 +39,21 @@ export interface Customer {
   is_active: boolean
 }
 
-export interface Job {
-  job_id: number
-  created_date: string
-  created_by: string
-  status: "IN_PROGRESS" | "PARTIALLY_RECEIVED" | "COMPLETED"
-  service_category: string
-  notes?: string
-  total_cost: number
-  total_final_payment: number
-  items: JobItem[]
+export interface JobDelivery {
+  id: number;
+  job_item: number;
+  quantity_received: number;
+  quantity_accepted: number;
+  rejection_reason?: string | null;
+  delivery_date: string;
+  notes?: string | null;
 }
 
 export interface JobItem {
   id: number
   job: number
-  artisan: number
-  product: number
+  artisan: number | { id: number; name: string } // Can be an object or just an ID
+  product: number | { id: number; product_type: string; animal_type: string; service_category: string }
   quantity_ordered: number
   quantity_received: number
   quantity_accepted: number
@@ -63,6 +61,21 @@ export interface JobItem {
   original_amount: number
   final_payment: number
   payslip_generated: boolean
+  deliveries?: JobDelivery[] // Add deliveries as optional field
+}
+
+export interface Job {
+  job_id: number
+  created_date: string
+  created_by: string
+  status: "IN_PROGRESS" | "PARTIALLY_RECEIVED" | "COMPLETED"
+  status_display?: string
+  service_category: string
+  notes?: string
+  total_cost: number
+  total_final_payment: number
+  items: JobItem[]
+  artisans_involved?: string[]
 }
 
 export interface Order {
@@ -119,6 +132,14 @@ export interface PriceHistory {
   reason?: string;
 }
 
+// Delivery creation payload
+export interface CreateDeliveryPayload {
+  quantity_received: number
+  quantity_accepted: number
+  rejection_reason?: string
+  notes?: string
+}
+
 // Generic API functions
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`
@@ -144,9 +165,34 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     const response = await fetch(url, config)
 
     if (!response.ok) {
-      // Attempt to parse JSON error message from backend
-      const errorBody = await response.json().catch(() => ({ detail: `HTTP error! status: ${response.status}` }));
-      throw new Error(errorBody.detail || `HTTP error! status: ${response.status}`);
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      try {
+        const errorBody = await response.json();
+        // Try to find a 'detail' field first
+        if (errorBody.detail) {
+          errorMessage = errorBody.detail;
+        }
+        // Then check for common DRF field errors
+        else if (typeof errorBody === 'object') {
+          const fieldErrors = Object.keys(errorBody)
+            .map(key => {
+              const value = errorBody[key];
+              if (Array.isArray(value) && value.length > 0) {
+                return `${key}: ${value.join(', ')}`;
+              } else {
+                return `${key}: ${value}`; // For non-array values (e.g., if detail is directly mapped to a key)
+              }
+            })
+            .join('; ');
+          if (fieldErrors) {
+            errorMessage = `Validation Error: ${fieldErrors}`;
+          }
+        }
+      } catch (jsonError) {
+        // response was not JSON, use generic message
+        errorMessage = `HTTP error! status: ${response.status}`;
+      }
+      throw new Error(errorMessage);
     }
 
     // Handle 204 No Content for DELETE requests
@@ -178,7 +224,7 @@ function getCsrfToken(): string | null {
 export const api = {
   // Products
   products: {
-    list: (params?: URLSearchParams) => apiRequest<Product[]>(`/products/?${params?.toString() || ''}`),
+    list: (params?: URLSearchParams) => apiRequest<{ results: Product[] }>(`/products/?${params?.toString() || ''}`).then(res => res.results),
     get: (id: number) => apiRequest<Product>(`/products/${id}/`),
     create: (data: Partial<Product>) =>
       apiRequest<Product>("/products/", {
@@ -198,12 +244,9 @@ export const api = {
     getPriceHistory: (productId: number, params?: URLSearchParams) =>
       apiRequest<PriceHistory[]>(`/products/${productId}/price-history/?${params?.toString() || ''}`),
     getMetadata: () => apiRequest<any>('/products/metadata/'),
-
     getPrice: (params: URLSearchParams) =>
       apiRequest<{ price: number }>(`/products/get_price/?${params.toString()}`),
   },
-
-    
 
   // Artisans
   artisans: {
@@ -247,7 +290,7 @@ export const api = {
 
   // Jobs
   jobs: {
-    list: () => apiRequest<Job[]>("/jobs/"),
+    list: (params?: URLSearchParams) => apiRequest<PaginatedResponse<JobListEntry>>(`/jobs/?${params?.toString() || ''}`),
     get: (id: number) => apiRequest<Job>(`/jobs/${id}/`),
     create: (data: Partial<Job>) =>
       apiRequest<Job>("/jobs/", {
@@ -259,16 +302,51 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(data),
       }),
+    delete: (id: number) =>
+      apiRequest<void>(`/jobs/${id}/`, {
+        method: "DELETE",
+      }),
     complete: (id: number, completionData: any) =>
       apiRequest<Job>(`/jobs/${id}/complete/`, {
         method: "POST",
         body: JSON.stringify(completionData),
       }),
+    createItem: (jobId: number, item: Partial<JobItem>) =>
+      apiRequest<JobItem>(`/jobs/${jobId}/items/`, {
+        method: "POST",
+        body: JSON.stringify(item),
+      }),
+    updateItem: (jobId: number, itemId: number, data: Partial<JobItem>) =>
+      apiRequest<JobItem>(`/jobs/${jobId}/items/${itemId}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteItem: (jobId: number, itemId: number) =>
+      apiRequest<void>(`/jobs/${jobId}/items/${itemId}/`, {
+        method: "DELETE",
+      }),
+    // Delivery management
+    createDelivery: (jobId: number, itemId: number, deliveryData: CreateDeliveryPayload) =>
+      apiRequest<JobItem>(`/jobs/${jobId}/items/${itemId}/deliveries/`, {
+        method: "POST",
+        body: JSON.stringify(deliveryData),
+      }),
+    getDeliveries: (jobId: number, itemId: number) =>
+      apiRequest<JobDelivery[]>(`/jobs/${jobId}/items/${itemId}/deliveries/`),
+    updateDelivery: (jobId: number, itemId: number, deliveryId: number, data: Partial<JobDelivery>) =>
+      apiRequest<JobDelivery>(`/jobs/${jobId}/items/${itemId}/deliveries/${deliveryId}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteDelivery: (jobId: number, itemId: number, deliveryId: number) =>
+      apiRequest<void>(`/jobs/${jobId}/items/${itemId}/deliveries/${deliveryId}/`, {
+        method: "DELETE",
+      }),
   },
 
   // Orders
   orders: {
-    list: () => apiRequest<Order[]>("/orders/"),
+    list: (params?: URLSearchParams) => apiRequest<Order[]>(`/orders/?${params?.toString() || ''}`),
     get: (id: number) => apiRequest<Order>(`/orders/${id}/`),
     create: (data: Partial<Order>) =>
       apiRequest<Order>("/orders/", {
@@ -280,16 +358,34 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(data),
       }),
+    delete: (id: number) =>
+      apiRequest<void>(`/orders/${id}/`, {
+        method: "DELETE",
+      }),
     updateStatus: (id: number, status: string) =>
       apiRequest<Order>(`/orders/${id}/status/`, {
         method: "PATCH",
         body: JSON.stringify({ status }),
       }),
+    createItem: (orderId: number, item: Partial<OrderItem>) =>
+      apiRequest<OrderItem>(`/orders/${orderId}/items/`, {
+        method: "POST",
+        body: JSON.stringify(item),
+      }),
+    updateItem: (orderId: number, itemId: number, data: Partial<OrderItem>) =>
+      apiRequest<OrderItem>(`/orders/${orderId}/items/${itemId}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteItem: (orderId: number, itemId: number) =>
+      apiRequest<void>(`/orders/${orderId}/items/${itemId}/`, {
+        method: "DELETE",
+      }),
   },
 
   // Payslips
   payslips: {
-    list: () => apiRequest<Payslip[]>("/payslips/"),
+    list: (params?: URLSearchParams) => apiRequest<Payslip[]>(`/payslips/?${params?.toString() || ''}`),
     get: (id: number) => apiRequest<Payslip>(`/payslips/${id}/`),
     generate: (data: {
       artisan_id?: number
@@ -305,15 +401,33 @@ export const api = {
       apiRequest<Blob>(`/payslips/${id}/download/`, {
         headers: {},
       }),
+    delete: (id: number) =>
+      apiRequest<void>(`/payslips/${id}/`, {
+        method: "DELETE",
+      }),
   },
 
   // Finished Stock
   finishedStock: {
-    list: () => apiRequest<FinishedStock[]>("/finished-stock/"),
+    list: (params?: URLSearchParams) => apiRequest<FinishedStock[]>(`/finished-stock/?${params?.toString() || ''}`),
     get: (id: number) => apiRequest<FinishedStock>(`/finished-stock/${id}/`),
+    create: (data: Partial<FinishedStock>) =>
+      apiRequest<FinishedStock>("/finished-stock/", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: Partial<FinishedStock>) =>
+      apiRequest<FinishedStock>(`/finished-stock/${id}/`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      apiRequest<void>(`/finished-stock/${id}/`, {
+        method: "DELETE",
+      }),
   },
 
-  // NEW: PriceHistory
+  // Price History
   priceHistory: {
     list: (params?: URLSearchParams) => apiRequest<PriceHistory[]>(`/price-history/?${params?.toString() || ''}`),
     get: (id: number) => apiRequest<PriceHistory>(`/price-history/${id}/`),
@@ -350,5 +464,32 @@ export const api = {
       apiRequest<any>(`/reports/financial/?${params?.toString() || ''}`, {
         method: "GET",
       }),
+    artisan: (params?: URLSearchParams) =>
+      apiRequest<any>(`/reports/artisan/?${params?.toString() || ''}`, {
+        method: "GET",
+      }),
+    inventory: (params?: URLSearchParams) =>
+      apiRequest<any>(`/reports/inventory/?${params?.toString() || ''}`, {
+        method: "GET",
+      }),
+  },
+
+  // Utility functions
+  utils: {
+    // Health check
+    health: () => apiRequest<{ status: string }>("/health/"),
+    // Get system metadata
+    metadata: () => apiRequest<any>("/metadata/"),
+    // Upload file (if needed)
+    upload: (file: File, endpoint: string) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      return apiRequest<any>(endpoint, {
+        method: "POST",
+        body: formData,
+        headers: {}, // Let browser set content-type for FormData
+      });
+    },
   },
 }

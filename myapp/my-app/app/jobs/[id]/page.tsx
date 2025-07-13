@@ -3,347 +3,211 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Progress } from "@/components/ui/progress"
-import { Clock, CheckCircle, AlertTriangle, User, Calendar } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Eye, CheckCircle, Package, Truck, Clock, AlertTriangle } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { useArtisan, useJob, useJobs } from '@/hooks/useResource';
+import React from 'react';
+import { api } from "@/lib/api"
 
-// Mock job data with delivery history
-const jobData = {
-  id: 1024,
-  createdDate: "2024-01-10",
-  createdBy: "Admin",
-  status: "PARTIALLY_RECEIVED",
-  serviceCategory: "CARVING",
-  notes: "High priority order for holiday season",
-  artisan: {
-    name: "John Smith",
-    phone: "+1 (555) 123-4567",
-  },
-  items: [
-    {
-      id: 1,
-      productType: "SITTING_ANIMAL",
-      animalType: "Elephant",
-      sizeCategory: "MEDIUM",
-      quantityOrdered: 20,
-      quantityReceived: 12,
-      quantityAccepted: 11,
-      unitPrice: 30.0,
-      originalAmount: 600.0,
-      finalPayment: 330.0,
-      deliveries: [
-        {
-          id: 1,
-          quantityReceived: 8,
-          quantityAccepted: 7,
-          rejectionReason: "QUALITY",
-          deliveryDate: "2024-01-15T10:30:00Z",
-          notes: "One piece had rough edges",
-        },
-        {
-          id: 2,
-          quantityReceived: 4,
-          quantityAccepted: 4,
-          rejectionReason: null,
-          deliveryDate: "2024-01-18T14:15:00Z",
-          notes: "Perfect quality",
-        },
-      ],
-    },
-  ],
+function getStatusIcon(status: string) {
+  switch (status) {
+    case "IN_PROGRESS":
+      return <Clock className="h-4 w-4" />
+    case "PARTIALLY_RECEIVED":
+      return <Package className="h-4 w-4" />
+    case "COMPLETED":
+      return <CheckCircle className="h-4 w-4" />
+    default:
+      return <Clock className="h-4 w-4" />
+  }
 }
 
-export default function JobDetailPage({ params }: { params: { id: string } }) {
-  const job = jobData // In real app, fetch by params.id
+function getStatusColor(status: string) {
+  switch (status) {
+    case "IN_PROGRESS":
+      return "secondary"
+    case "PARTIALLY_RECEIVED":
+      return "default"
+    case "COMPLETED":
+      return "default"
+    default:
+      return "secondary"
+  }
+}
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "IN_PROGRESS":
-        return "bg-blue-100 text-blue-800"
-      case "PARTIALLY_RECEIVED":
-        return "bg-yellow-100 text-yellow-800"
-      case "COMPLETED":
-        return "bg-green-100 text-green-800"
-      default:
-        return "bg-gray-100 text-gray-800"
-    }
+export default function JobDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = React.use(params);
+  const jobId = parseInt(id);
+  
+  const { data: job, loading, error, refetch } = useJob(jobId);
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 mt-8">
+          {[...Array(2)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
-  const getRejectionReasonLabel = (reason: string | null) => {
-    const reasons: Record<string, string> = {
-      QUALITY: "Quality Issues",
-      DAMAGE: "Damaged Item",
-      OTHER: "Other",
-    }
-    return reason ? reasons[reason] : null
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>
+            {error && typeof error === 'object' && 'message' in error 
+              ? (error as Error).message 
+              : "An unknown error occurred."}
+          </AlertDescription>
+        </Alert>
+        <Button onClick={refetch} className="mt-4">Retry</Button>
+      </div>
+    );
   }
 
-  const getCompletionPercentage = (item: any) => {
-    return (item.quantityReceived / item.quantityOrdered) * 100
+  if (!job) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="default">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Job Not Found</AlertTitle>
+          <AlertDescription>The job with ID {jobId} could not be found.</AlertDescription>
+        </Alert>
+      </div>
+    );
   }
 
   return (
     <div className="container mx-auto p-6">
       <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Job #{job.id}</h1>
-            <p className="text-muted-foreground mt-2">Created on {new Date(job.createdDate).toLocaleDateString()}</p>
-          </div>
-          <Badge className={getStatusColor(job.status)}>{job.status.replace("_", " ")}</Badge>
-        </div>
+        <h1 className="text-3xl font-bold">Job Details: #{job.job_id}</h1>
+        <p className="text-muted-foreground mt-2">Overview and progress of this production job</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <Tabs defaultValue="overview" className="space-y-6">
-            <TabsList>
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="deliveries">Deliveries</TabsTrigger>
-              <TabsTrigger value="payments">Payments</TabsTrigger>
-            </TabsList>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Badge variant={getStatusColor(job.status)} className="text-lg px-3 py-1">
+              {getStatusIcon(job.status)} {job.status.replace(/_/g, " ")}
+            </Badge>
+          </CardContent>
+        </Card>
 
-            <TabsContent value="overview">
-              <div className="space-y-6">
-                {/* Job Items */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Job Items</CardTitle>
-                    <CardDescription>Products assigned to this job</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {job.items.map((item) => {
-                        const completion = getCompletionPercentage(item)
-                        const remaining = item.quantityOrdered - item.quantityReceived
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Artisan</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {job.items.length > 0 ? `${job.items.length}` : 'Not assigned'}
+            </div>
+            <p className="text-xs text-muted-foreground">Assigned artisan</p>
+          </CardContent>
+        </Card>
 
-                        return (
-                          <div key={item.id} className="p-4 border rounded-lg">
-                            <div className="flex items-center justify-between mb-3">
-                              <div>
-                                <Badge variant="outline" className="mb-1">
-                                  {item.productType.replace(/_/g, " ")}
-                                </Badge>
-                                <p className="text-sm text-muted-foreground">
-                                  {item.animalType} • {item.sizeCategory.replace(/_/g, " ")}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-medium">${item.unitPrice.toFixed(2)} each</p>
-                                <p className="text-xs text-muted-foreground">Unit price</p>
-                              </div>
-                            </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Total Cost</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">${Number(job.total_cost).toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">Estimated total payment</p>
+          </CardContent>
+        </Card>
+      </div>
 
-                            <div className="space-y-2">
-                              <div className="flex justify-between text-sm">
-                                <span>
-                                  Progress: {item.quantityReceived}/{item.quantityOrdered}
-                                </span>
-                                <span>{completion.toFixed(0)}% complete</span>
-                              </div>
-                              <Progress value={completion} className="h-2" />
-
-                              <div className="grid grid-cols-3 gap-4 text-sm">
-                                <div>
-                                  <p className="text-muted-foreground">Ordered</p>
-                                  <p className="font-medium">{item.quantityOrdered}</p>
-                                </div>
-                                <div>
-                                  <p className="text-muted-foreground">Received</p>
-                                  <p className="font-medium">{item.quantityReceived}</p>
-                                </div>
-                                <div>
-                                  <p className="text-muted-foreground">Accepted</p>
-                                  <p className="font-medium text-green-600">{item.quantityAccepted}</p>
-                                </div>
-                              </div>
-
-                              {remaining > 0 && (
-                                <div className="flex items-center mt-2">
-                                  <Clock className="h-4 w-4 text-yellow-500 mr-1" />
-                                  <span className="text-xs text-muted-foreground">{remaining} pieces remaining</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="deliveries">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Delivery History</CardTitle>
-                  <CardDescription>All deliveries received for this job</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {job.items.map((item) => (
-                      <div key={item.id}>
-                        <h4 className="font-medium mb-3">
-                          {item.productType.replace(/_/g, " ")} - {item.animalType}
-                        </h4>
-                        <div className="space-y-3 ml-4">
-                          {item.deliveries.map((delivery) => (
-                            <div key={delivery.id} className="flex items-start space-x-3 p-3 border rounded-lg">
-                              <div className="flex-shrink-0">
-                                {delivery.rejectionReason ? (
-                                  <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                                ) : (
-                                  <CheckCircle className="h-5 w-5 text-green-500" />
-                                )}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex items-center justify-between mb-1">
-                                  <p className="text-sm font-medium">
-                                    Received: {delivery.quantityReceived}, Accepted: {delivery.quantityAccepted}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {new Date(delivery.deliveryDate).toLocaleDateString()} at{" "}
-                                    {new Date(delivery.deliveryDate).toLocaleTimeString()}
-                                  </p>
-                                </div>
-                                {delivery.rejectionReason && (
-                                  <Badge variant="destructive" className="text-xs mb-2">
-                                    {getRejectionReasonLabel(delivery.rejectionReason)}
-                                  </Badge>
-                                )}
-                                {delivery.notes && <p className="text-xs text-muted-foreground">{delivery.notes}</p>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Job Items</CardTitle>
+          <CardDescription>Products included in this job</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Artisan</TableHead>
+                <TableHead>Product</TableHead>
+                <TableHead>Ordered</TableHead>
+                <TableHead>Received</TableHead>
+                <TableHead>Accepted</TableHead>
+                <TableHead>Remaining</TableHead>
+                <TableHead>Unit Price</TableHead>
+                <TableHead>Total Payment</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {job.items.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell>
+                    <Badge variant="outline">
+                      {typeof item.artisan === 'object' && item.artisan?.name 
+                        ? item.artisan.name
+                        : item.artisan}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {item.product && typeof item.product === 'object' ? (
+                      <div className="text-sm">
+                        <div className="font-medium">{item.product.product_type}</div>
+                        <div className="text-xs text-muted-foreground">{item.product.animal_type}</div>
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+                    ) : (
+                      <span className="text-muted-foreground">Product {item.product}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>{item.quantity_ordered}</TableCell>
+                  <TableCell>{item.quantity_received}</TableCell>
+                  <TableCell>{item.quantity_accepted}</TableCell>
+                  <TableCell>{item.quantity_ordered - item.quantity_received}</TableCell>
+                  <TableCell>${Number(item.original_amount).toFixed(2)}</TableCell>
+                  <TableCell>${Number(item.final_payment).toFixed(2)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-            <TabsContent value="payments">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Payment Breakdown</CardTitle>
-                  <CardDescription>Original vs final payment amounts</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Ordered Qty</TableHead>
-                        <TableHead>Accepted Qty</TableHead>
-                        <TableHead>Unit Price</TableHead>
-                        <TableHead>Original Amount</TableHead>
-                        <TableHead>Final Payment</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {job.items.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{item.productType.replace(/_/g, " ")}</p>
-                              <p className="text-xs text-muted-foreground">{item.animalType}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>{item.quantityOrdered}</TableCell>
-                          <TableCell className="text-green-600 font-medium">{item.quantityAccepted}</TableCell>
-                          <TableCell>${item.unitPrice.toFixed(2)}</TableCell>
-                          <TableCell>${item.originalAmount.toFixed(2)}</TableCell>
-                          <TableCell className="font-medium">${item.finalPayment.toFixed(2)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-
-                  <div className="mt-6 pt-4 border-t">
-                    <div className="flex justify-between items-center">
-                      <span className="text-lg font-medium">Total Final Payment:</span>
-                      <span className="text-xl font-bold text-green-600">
-                        ${job.items.reduce((sum, item) => sum + item.finalPayment, 0).toFixed(2)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Difference from original: -$
-                      {(
-                        job.items.reduce((sum, item) => sum + item.originalAmount, 0) -
-                        job.items.reduce((sum, item) => sum + item.finalPayment, 0)
-                      ).toFixed(2)}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </div>
-
-        {/* Job Info Sidebar */}
-        <div>
-          <Card className="sticky top-6">
-            <CardHeader>
-              <CardTitle>Job Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">{job.artisan.name}</p>
-                  <p className="text-xs text-muted-foreground">{job.artisan.phone}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Created</p>
-                  <p className="text-xs text-muted-foreground">{new Date(job.createdDate).toLocaleDateString()}</p>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium">Service Category</p>
-                <Badge variant="secondary">{job.serviceCategory}</Badge>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium">Status</p>
-                <Badge className={getStatusColor(job.status)}>{job.status.replace("_", " ")}</Badge>
-              </div>
-
-              {job.notes && (
-                <div>
-                  <p className="text-sm font-medium">Notes</p>
-                  <p className="text-xs text-muted-foreground">{job.notes}</p>
-                </div>
-              )}
-
-              <div className="pt-4 border-t">
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Total Items:</span>
-                    <span>{job.items.reduce((sum, item) => sum + item.quantityOrdered, 0)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Received:</span>
-                    <span>{job.items.reduce((sum, item) => sum + item.quantityReceived, 0)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Accepted:</span>
-                    <span className="text-green-600 font-medium">
-                      {job.items.reduce((sum, item) => sum + item.quantityAccepted, 0)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Job Notes</CardTitle>
+          <CardDescription>Additional notes for this job</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            {job.notes || "No notes for this job."}
+          </p>
+        </CardContent>
+      </Card>
     </div>
-  )
+  );
 }

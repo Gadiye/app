@@ -20,7 +20,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
+    'django_extensions',  # For development utilities like shell_plus
     # Third party apps
     'rest_framework',
     'corsheaders',

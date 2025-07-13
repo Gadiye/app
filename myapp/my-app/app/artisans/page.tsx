@@ -16,28 +16,22 @@ import { Textarea } from "@/components/ui/textarea"
 import { Loader2 } from "lucide-react"
 
 // Import the useArtisans hook from your hooks file
-import { useArtisans } from '@/hooks/useApi'; // Assuming your hooks file is named useApiHooks.ts/js
+import { useArtisans } from '@/hooks/useResource';
+import { api, Artisan } from '@/lib/api'; // Assuming your types are exported from lib/api/index.ts
 
-// Import the Artisan interface from your API types file
-import { Artisan } from '@/lib/api'; // Assuming your types are exported from lib/api/index.ts
-
-interface NewArtisan {
-  name: string;
-  phone: string;
-  specialties: string[];
-  notes: string;
-}
+interface NewArtisan extends Omit<Artisan, 'id'> {}
 
 export default function ArtisansPage() {
   // Use the useArtisans hook to fetch data
   // The 'data' returned by useArtisans will be Artisan[] | null
   const { data: artisans, loading, error, refetch } = useArtisans();
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [newArtisan, setNewArtisan] = useState<NewArtisan>({
+  const [newArtisan, setNewArtisan] = useState<Partial<NewArtisan>>({
     name: "",
     phone: "",
     specialties: [],
-    notes: "",
+    is_active: true,
+    created_date: new Date().toISOString(),
   });
   const [submitting, setSubmitting] = useState(false);
   const availableSpecialties = ["CARVING", "CUTTING", "PAINTING", "SANDING", "FINISHING", "FINISHED"];
@@ -47,38 +41,26 @@ export default function ArtisansPage() {
   const safeArtisans = artisans || [];
 
   const activeArtisans = safeArtisans.filter((a: Artisan) => a.is_active).length;
-  const totalEarnings = safeArtisans.reduce((sum, a) => sum + (a.total_earnings || 0), 0);
-  const totalPendingPayments = safeArtisans.reduce((sum, a) => sum + (a.pending_payment || 0), 0);
+  const totalEarnings = safeArtisans.reduce((sum: number, a: Artisan) => sum + (a.total_earnings || 0), 0);
+  const totalPendingPayments = safeArtisans.reduce((sum: number, a: Artisan) => sum + (a.pending_payment || 0), 0);
   const averageRating = safeArtisans.length ?
-    safeArtisans.reduce((sum, a) => sum + (a.average_rating || 0), 0) / safeArtisans.length : 0;
+    safeArtisans.reduce((sum: number, a: Artisan) => sum + (a.average_rating || 0), 0) / safeArtisans.length : 0;
 
   function handleSpecialtyToggle(specialty: string) {
     setNewArtisan((prev) => ({
       ...prev,
-      specialties: prev.specialties.includes(specialty)
+      specialties: prev.specialties?.includes(specialty)
         ? prev.specialties.filter((s: string) => s !== specialty)
-        : [...prev.specialties, specialty],
+        : [...(prev.specialties || []), specialty],
     }));
   }
 
   async function handleAddArtisan() {
     setSubmitting(true);
     try {
-      // Change the fetch URL to your Django backend's address
-      const response = await fetch("http://127.0.0.1:8000/api/artisans/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newArtisan),
-      });
-
-      if (!response.ok) {
-        // Handle HTTP errors (e.g., 400 Bad Request, 500 Internal Server Error from Django)
-        const errorData = await response.json();
-        throw new Error(errorData.detail || errorData.message || "Failed to add artisan");
-      }
-
+      await api.artisans.create(newArtisan as NewArtisan);
       setShowAddDialog(false);
-      setNewArtisan({ name: "", phone: "", specialties: [], notes: "" });
+      setNewArtisan({ name: "", phone: "", specialties: [], is_active: true, created_date: new Date().toISOString() });
       refetch();
     } catch (err: any) {
       console.error("Failed to create artisan:", err);
@@ -169,35 +151,10 @@ export default function ArtisansPage() {
                     id="phone"
                     value={newArtisan.phone}
                     onChange={(e) => setNewArtisan({ ...newArtisan, phone: e.target.value })}
-                    placeholder="+1 (555) 123-4567"
+                    placeholder="+254712345678"
                   />
                 </div>
-                <div>
-                  <Label>Specialties</Label>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {availableSpecialties.map((specialty) => (
-                      <Badge
-                        key={specialty}
-                        variant={newArtisan.specialties.includes(specialty) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => handleSpecialtyToggle(specialty)}
-                      >
-                        {specialty}
-                      </Badge>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">Click to select/deselect specialties</p>
-                </div>
-                <div>
-                  <Label htmlFor="notes">Notes (Optional)</Label>
-                  <Textarea
-                    id="notes"
-                    value={newArtisan.notes}
-                    onChange={(e) => setNewArtisan({ ...newArtisan, notes: e.target.value })}
-                    placeholder="Any additional notes about the artisan..."
-                    rows={3}
-                  />
-                </div>
+                
                 <div className="flex gap-2 pt-4">
                   <Button onClick={handleAddArtisan} disabled={!newArtisan.name || submitting}>
                     {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

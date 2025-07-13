@@ -13,121 +13,116 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format } from "date-fns"
 import { CalendarIcon, Download, FileText, Clock, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
-// Mock data
-const artisans = [
-  { id: 1, name: "John Smith", phone: "+1 (555) 123-4567" },
-  { id: 2, name: "Maria Garcia", phone: "+1 (555) 234-5678" },
-  { id: 3, name: "Carlos Rodriguez", phone: "+1 (555) 345-6789" },
-  { id: 4, name: "Anna Johnson", phone: "+1 (555) 456-7890" },
-  { id: 5, name: "David Chen", phone: "+1 (555) 567-8901" },
-]
+import { useArtisans, usePayslips } from '@/hooks/useResource';
+import { api } from '@/lib/api';
 
 const serviceCategories = ["CARVING", "CUTTING", "PAINTING", "SANDING", "FINISHING"]
 
-const payslips = [
-  {
-    id: 1,
-    artisan: "John Smith",
-    serviceCategory: "CARVING",
-    generatedDate: "2024-01-20",
-    totalPayment: 1250.0,
-    periodStart: "2024-01-01",
-    periodEnd: "2024-01-15",
-    pdfFile: "payslip_john_smith_20240120.pdf",
-    jobCount: 5,
-  },
-  {
-    id: 2,
-    artisan: "Maria Garcia",
-    serviceCategory: "PAINTING",
-    generatedDate: "2024-01-19",
-    totalPayment: 980.0,
-    periodStart: "2024-01-01",
-    periodEnd: "2024-01-15",
-    pdfFile: "payslip_maria_garcia_20240119.pdf",
-    jobCount: 4,
-  },
-  {
-    id: 3,
-    artisan: "Carlos Rodriguez",
-    serviceCategory: "FINISHING",
-    generatedDate: "2024-01-18",
-    totalPayment: 1450.0,
-    periodStart: "2024-01-01",
-    periodEnd: "2024-01-15",
-    pdfFile: "payslip_carlos_rodriguez_20240118.pdf",
-    jobCount: 6,
-  },
-  {
-    id: 4,
-    artisan: "Anna Johnson",
-    serviceCategory: "SANDING",
-    generatedDate: "2024-01-17",
-    totalPayment: 750.0,
-    periodStart: "2024-01-01",
-    periodEnd: "2024-01-15",
-    pdfFile: "payslip_anna_johnson_20240117.pdf",
-    jobCount: 3,
-  },
-]
-
-const pendingPayments = [
-  {
-    artisan: "John Smith",
-    serviceCategory: "CARVING",
-    jobCount: 3,
-    totalAmount: 890.0,
-    oldestJob: "2024-01-16",
-  },
-  {
-    artisan: "Maria Garcia",
-    serviceCategory: "PAINTING",
-    jobCount: 2,
-    totalAmount: 640.0,
-    oldestJob: "2024-01-17",
-  },
-  {
-    artisan: "David Chen",
-    serviceCategory: "CUTTING",
-    jobCount: 4,
-    totalAmount: 520.0,
-    oldestJob: "2024-01-15",
-  },
-]
-
 export default function PayslipsPage() {
+  const { data: artisans, loading: artisansLoading, error: artisansError } = useArtisans();
+  const { data: payslips, loading: payslipsLoading, error: payslipsError, refetch: refetchPayslips } = usePayslips();
+
   const [selectedArtisan, setSelectedArtisan] = useState("")
   const [selectedService, setSelectedService] = useState("")
   const [periodStart, setPeriodStart] = useState<Date>()
   const [periodEnd, setPeriodEnd] = useState<Date>()
   const [generationType, setGenerationType] = useState<"individual" | "bulk">("individual")
 
-  const totalPayslips = payslips.length
-  const totalPayments = payslips.reduce((sum, p) => sum + p.totalPayment, 0)
-  const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.totalAmount, 0)
+  const safeArtisans = artisans || [];
+  const safePayslips = payslips || [];
 
-  const handleGeneratePayslip = () => {
-    if (generationType === "individual" && selectedArtisan && periodStart && periodEnd) {
-      // In real app, this would call your backend API
-      console.log("Generating individual payslip:", {
-        artisan: selectedArtisan,
-        periodStart,
-        periodEnd,
-      })
-    } else if (generationType === "bulk" && selectedService && periodStart && periodEnd) {
-      // In real app, this would call your backend API
-      console.log("Generating bulk payslips:", {
-        serviceCategory: selectedService,
-        periodStart,
-        periodEnd,
-      })
+  const totalPayslips = safePayslips.length
+  const totalPayments = safePayslips.reduce((sum, p) => sum + p.total_payment, 0)
+  // Pending payments data is not yet integrated from API, so it will show 0
+  const pendingAmount = 0; 
+
+  const handleGeneratePayslip = async () => {
+    try {
+      if (generationType === "individual" && selectedArtisan && periodStart && periodEnd) {
+        await api.payslips.generate({
+          artisan_id: parseInt(selectedArtisan),
+          period_start: format(periodStart, "yyyy-MM-dd"),
+          period_end: format(periodEnd, "yyyy-MM-dd"),
+        });
+        alert("Individual payslip generated successfully!");
+      } else if (generationType === "bulk" && selectedService && periodStart && periodEnd) {
+        await api.payslips.generate({
+          service_category: selectedService,
+          period_start: format(periodStart, "yyyy-MM-dd"),
+          period_end: format(periodEnd, "yyyy-MM-dd"),
+        });
+        alert("Bulk payslips generated successfully!");
+      }
+      refetchPayslips();
+      // Reset form
+      setSelectedArtisan("");
+      setSelectedService("");
+      setPeriodStart(undefined);
+      setPeriodEnd(undefined);
+    } catch (err: any) {
+      alert(`Failed to generate payslip: ${err.message}`);
     }
   }
 
-  const handleDownloadPayslip = (filename: string) => {
-    // In real app, this would download the actual PDF file
-    console.log("Downloading payslip:", filename)
+  const handleDownloadPayslip = async (id: number, filename: string) => {
+    try {
+      const blob = await api.payslips.download(id);
+      const url = window.URL.createObjectURL(new Blob([blob]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (err: any) {
+      alert(`Failed to download payslip: ${err.message}`);
+    }
+  }
+
+  if (artisansLoading || payslipsLoading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 mt-8">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (artisansError || payslipsError) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>{artisansError instanceof Error ? artisansError.message : payslipsError instanceof Error ? payslipsError.message : "An unknown error occurred."}</AlertDescription>
+        </Alert>
+        <Button onClick={() => { refetchPayslips(); /* refetchArtisans if implemented */ }} className="mt-4">Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -145,7 +140,7 @@ export default function PayslipsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalPayslips}</div>
-            <p className="text-xs text-muted-foreground">Generated this month</p>
+            <p className="text-xs text-muted-foreground">Generated</p>
           </CardContent>
         </Card>
 
@@ -155,7 +150,7 @@ export default function PayslipsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${totalPayments.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Paid out this month</p>
+            <p className="text-xs text-muted-foreground">Paid out</p>
           </CardContent>
         </Card>
 
@@ -164,8 +159,8 @@ export default function PayslipsPage() {
             <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">${pendingAmount.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Awaiting payslip generation</p>
+            <div className="text-2xl font-bold">${pendingAmount.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">Awaiting payslip generation (Not yet integrated)</p>
           </CardContent>
         </Card>
 
@@ -174,8 +169,8 @@ export default function PayslipsPage() {
             <CardTitle className="text-sm font-medium">Active Artisans</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{artisans.length}</div>
-            <p className="text-xs text-muted-foreground">With pending work</p>
+            <div className="text-2xl font-bold">{safeArtisans.length}</div>
+            <p className="text-xs text-muted-foreground">Currently active</p>
           </CardContent>
         </Card>
       </div>
@@ -242,7 +237,7 @@ export default function PayslipsPage() {
                           <SelectValue placeholder="Choose an artisan" />
                         </SelectTrigger>
                         <SelectContent>
-                          {artisans.map((artisan) => (
+                          {safeArtisans.map((artisan) => (
                             <SelectItem key={artisan.id} value={artisan.id.toString()}>
                               {artisan.name}
                             </SelectItem>
@@ -348,30 +343,28 @@ export default function PayslipsPage() {
                     <TableHead>Artisan</TableHead>
                     <TableHead>Service Category</TableHead>
                     <TableHead>Period</TableHead>
-                    <TableHead>Jobs</TableHead>
                     <TableHead>Total Payment</TableHead>
                     <TableHead>Generated Date</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {payslips.map((payslip) => (
+                  {safePayslips.map((payslip) => (
                     <TableRow key={payslip.id}>
                       <TableCell className="font-medium">{payslip.artisan}</TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{payslip.serviceCategory}</Badge>
+                        <Badge variant="secondary">{payslip.service_category}</Badge>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          <div>{payslip.periodStart}</div>
-                          <div className="text-muted-foreground">to {payslip.periodEnd}</div>
+                          <div>{payslip.period_start}</div>
+                          <div className="text-muted-foreground">to {payslip.period_end}</div>
                         </div>
                       </TableCell>
-                      <TableCell>{payslip.jobCount} jobs</TableCell>
-                      <TableCell className="font-medium">${payslip.totalPayment.toFixed(2)}</TableCell>
-                      <TableCell>{payslip.generatedDate}</TableCell>
+                      <TableCell className="font-medium">${payslip.total_payment.toFixed(2)}</TableCell>
+                      <TableCell>{new Date(payslip.generated_date).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => handleDownloadPayslip(payslip.pdfFile)}>
+                        <Button variant="ghost" size="sm" onClick={() => handleDownloadPayslip(payslip.id, payslip.pdf_file)}>
                           <Download className="h-4 w-4" />
                         </Button>
                       </TableCell>
@@ -388,7 +381,7 @@ export default function PayslipsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Pending Payments</CardTitle>
-              <CardDescription>Artisans with completed work awaiting payslip generation</CardDescription>
+              <CardDescription>Artisans with completed work awaiting payslip generation (Not yet integrated)</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -403,23 +396,12 @@ export default function PayslipsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pendingPayments.map((pending, index) => (
-                    <TableRow key={index}>
-                      <TableCell className="font-medium">{pending.artisan}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{pending.serviceCategory}</Badge>
-                      </TableCell>
-                      <TableCell>{pending.jobCount} jobs</TableCell>
-                      <TableCell className="font-medium">${pending.totalAmount.toFixed(2)}</TableCell>
-                      <TableCell>{pending.oldestJob}</TableCell>
-                      <TableCell>
-                        <Button variant="outline" size="sm">
-                          <FileText className="mr-2 h-4 w-4" />
-                          Generate Payslip
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {/* No data for pending payments yet */}
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                      No pending payments to display.
+                    </TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
             </CardContent>

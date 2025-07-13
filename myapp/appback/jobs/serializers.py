@@ -107,17 +107,17 @@ class JobListSerializer(serializers.ModelSerializer):
     """Serializer for listing Jobs."""
     service_category_display = serializers.CharField(source='get_service_category_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    total_cost = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
-    total_final_payment = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    total_cost = serializers.FloatField(read_only=True)
+    total_final_payment = serializers.FloatField(read_only=True)
 
     class Meta:
         model = Job
         fields = [
             'job_id', 'created_date', 'created_by', 'status', 'status_display',
             'service_category', 'service_category_display', 'notes',
-            'total_cost', 'total_final_payment'
+            'total_cost', 'total_final_payment', 'artisans_involved'
         ]
-        read_only_fields = ['created_date', 'status', 'total_cost', 'total_final_payment']
+        read_only_fields = ['created_date', 'status', 'total_cost', 'total_final_payment', 'artisans_involved']
 
 
 class JobDetailSerializer(JobListSerializer):
@@ -130,16 +130,51 @@ class JobDetailSerializer(JobListSerializer):
 
 class JobCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating and updating Jobs."""
-    # created_by will be set automatically based on request.user
+    items = JobItemCreateUpdateSerializer(many=True, write_only=True)
     created_by = serializers.CharField(read_only=True)
-    status = serializers.CharField(read_only=True) # Status is auto-updated by model methods
+    status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Job
         fields = [
-            'job_id', 'created_date', 'created_by', 'status', 'service_category', 'notes'
+            'job_id', 'created_date', 'created_by', 'status', 
+            'service_category', 'notes', 'items'
         ]
         read_only_fields = ['job_id', 'created_date']
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError("A job must have at least one item.")
+        
+        # Check for service category consistency
+        service_category = self.initial_data.get('service_category')
+        for item_data in value:
+            product = item_data.get('product')
+            if product and product.service_category != service_category:
+                raise serializers.ValidationError(
+                    f"Product '{product.product_type}' has a different service category "
+                    f"than the one specified for the job ('{service_category}')."
+                )
+        return value
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        job = Job.objects.create(**validated_data)
+        for item_data in items_data:
+            JobItem.objects.create(job=job, **item_data)
+        return job
+
+    def update(self, instance, validated_data):
+        # Basic job fields update
+        instance.service_category = validated_data.get('service_category', instance.service_category)
+        instance.notes = validated_data.get('notes', instance.notes)
+        instance.save()
+
+        # For updating items, it's better to use the dedicated JobItem endpoints
+        # as handling nested updates here can be complex (e.g., identifying which item to update).
+        # If full nested updates are needed, this logic would need to be expanded significantly.
+        
+        return instance
 
     def validate_service_category(self, value):
         if value not in [choice[0] for choice in Product.SERVICE_CATEGORIES]:

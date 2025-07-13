@@ -1,21 +1,16 @@
+// hooks/useApi.ts
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import type {
-  Artisan,
-  Customer,
-  Job,
-  Order,
-  Product,
-  FinishedStock,
-  Payslip,
-  PriceHistory,
-  CreateJobPayload,
-  JobItemPayload,
-  ProductPrice,
-} from "../lib/api"
 
-// --- Generic API Hook ---
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const cache = new Map<string, CacheEntry<any>>();
+const CACHE_EXPIRATION_TIME = 5 * 60 * 1000; // 5 minutes
+
 export function useApi<T>(
   apiCall: () => Promise<T>,
   dependencies: any[] = [],
@@ -29,14 +24,26 @@ export function useApi<T>(
   const [loading, setLoading] = useState(options.immediate !== false)
   const [error, setError] = useState<string | null>(null)
 
+  const cacheKey = JSON.stringify(dependencies);
+
   const fetchData = useCallback(async () => {
     let isMounted = true
+    if (cache.has(cacheKey)) {
+      const cachedEntry = cache.get(cacheKey);
+      if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_EXPIRATION_TIME)) {
+        setData(cachedEntry.data);
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       setLoading(true)
       setError(null)
       const result = await apiCall()
       if (isMounted) {
         setData(result)
+        cache.set(cacheKey, { data: result, timestamp: Date.now() });
         options.onSuccess?.(result)
       }
     } catch (err) {
@@ -51,191 +58,25 @@ export function useApi<T>(
     return () => {
       isMounted = false
     }
-  }, [apiCall, options.onSuccess, options.onError])
+  }, [apiCall, options.onSuccess, options.onError, cacheKey])
 
   useEffect(() => {
     if (options.immediate !== false) {
       fetchData()
     }
-  }, dependencies)
+  }, [fetchData, options.immediate])
 
   const refetch = useCallback(async () => {
+    cache.delete(cacheKey);
     return fetchData()
-  }, [fetchData])
+  }, [fetchData, cacheKey])
 
   const reset = useCallback(() => {
     setData(null)
     setError(null)
     setLoading(false)
-  }, [])
+    cache.delete(cacheKey);
+  }, [cacheKey])
 
   return { data, loading, error, refetch, reset }
 }
-
-// --- List Fetching Hooks ---
-export function useArtisans() {
-  return useApi<Artisan[]>(() =>
-    import("../lib/api").then(({ api }) => api.artisans.list())
-  )
-}
-
-export function useProducts() {
-  return useApi<Product[]>(() =>
-    import("../lib/api").then(({ api }) => api.products.list())
-  )
-}
-
-export function useCustomers() {
-  return useApi<Customer[]>(() =>
-    import("../lib/api").then(({ api }) => api.customers.list())
-  )
-}
-
-export function useJobs() {
-  return useApi<Job[]>(() =>
-    import("../lib/api").then(({ api }) => api.jobs.list())
-  )
-}
-
-export function useOrders() {
-  return useApi<Order[]>(() =>
-    import("../lib/api").then(({ api }) => api.orders.list())
-  )
-}
-
-export function useFinishedStock() {
-  return useApi<FinishedStock[]>(() =>
-    import("../lib/api").then(({ api }) => api.finishedStock.list())
-  )
-}
-
-export function usePayslips() {
-  return useApi<Payslip[]>(() =>
-    import("../lib/api").then(({ api }) => api.payslips.list())
-  )
-}
-
-// --- Individual Resource Fetching Hooks ---
-export function useArtisan(id: number, options?: { immediate?: boolean }) {
-  return useApi<Artisan>(
-    () => import("../lib/api").then(({ api }) => api.artisans.get(id)),
-    [id],
-    options
-  )
-}
-
-export function useCustomer(id: number, options?: { immediate?: boolean }) {
-  return useApi<Customer>(
-    () => import("../lib/api").then(({ api }) => api.customers.get(id)),
-    [id],
-    options
-  )
-}
-
-export function useJob(id: number, options?: { immediate?: boolean }) {
-  return useApi<Job>(
-    () => import("../lib/api").then(({ api }) => api.jobs.get(id)),
-    [id],
-    options
-  )
-}
-
-export function useProduct(id: number, options?: { immediate?: boolean }) {
-  return useApi<Product>(
-    () => import("../lib/api").then(({ api }) => api.products.get(id)),
-    [id],
-    options
-  )
-}
-
-// --- Smart Lookup Hook ---
-export function useProductPrice(
-  productType?: string,
-  animalType?: string,
-  serviceCategory?: string,
-  sizeCategory?: string,
-  options?: { immediate?: boolean; enabled?: boolean }
-) {
-  const params = new URLSearchParams()
-  if (productType) params.append("product_type", productType)
-  if (animalType) params.append("animal_type", animalType)
-  if (serviceCategory) params.append("service_category", serviceCategory)
-  if (sizeCategory) params.append("size_category", sizeCategory)
-
-  const enabled =
-    options?.enabled !== false &&
-    productType &&
-    animalType &&
-    serviceCategory
-
-  return useApi<ProductPrice>(
-    () =>
-      enabled
-        ? import("../lib/api").then(({ api }) =>
-            api.products.getPrice(params)
-          )
-        : Promise.resolve({ price: 0 }),
-    [productType, animalType, serviceCategory, sizeCategory, enabled],
-    {
-      ...options,
-      immediate: options?.immediate !== false && enabled,
-    }
-  )
-}
-
-// --- Price History ---
-export function usePriceHistory(productId?: number, params?: URLSearchParams) {
-  return useApi<PriceHistory[]>(
-    () =>
-      import("../lib/api").then(({ api }) =>
-        productId
-          ? api.products.getPriceHistory(productId, params)
-          : api.priceHistory.list(params)
-      ),
-    [productId, params?.toString()]
-  )
-}
-
-// --- Mutations ---
-export function useCreateJob() {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [jobResponse, setJobResponse] = useState<Job | null>(null)
-
-  const createJob = useCallback(async (data: CreateJobPayload) => {
-    try {
-      setLoading(true)
-      setError(null)
-      const { api } = await import("../lib/api")
-      const result = await api.jobs.create(data)
-      setJobResponse(result)
-      return result
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An error occurred"
-      setError(errorMessage)
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  return { createJob, loading, error, jobResponse }
-}
-
-// --- Types for Job Creation ---
-export interface JobItemPayload {
-  artisan: number;
-  product_type: string;
-  animal_type: string;
-  size_category: string;
-  quantity: number;
-  unit_price: number;
-  total_price: number;
-}
-
-export interface CreateJobPayload {
-  service_category: string;
-  notes?: string;
-  job_items: JobItemPayload[];
-}
-

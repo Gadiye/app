@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,90 +10,55 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Plus, Trash2, ShoppingCart } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { useCustomers, useFinishedStock } from '@/hooks/useResource';
+import { api, OrderItem as ApiOrderItem, Order as ApiOrder } from '@/lib/api';
 
-// Mock data
-const customers = [
-  { id: 1, name: "Sarah Johnson", email: "sarah.johnson@email.com" },
-  { id: 2, name: "Michael Chen", email: "m.chen@email.com" },
-  { id: 3, name: "Emily Rodriguez", email: "emily.r@email.com" },
-  { id: 4, name: "David Wilson", email: "d.wilson@email.com" },
-]
-
-const finishedProducts = [
-  {
-    id: 1,
-    productType: "SITTING_ANIMAL",
-    animalType: "Elephant",
-    sizeCategory: "MEDIUM",
-    price: 45.0,
-    stockQuantity: 12,
-  },
-  {
-    id: 2,
-    productType: "ANIMAL_MASKS",
-    animalType: "Lion",
-    sizeCategory: "LARGE",
-    price: 55.0,
-    stockQuantity: 8,
-  },
-  {
-    id: 3,
-    productType: "YOGA_BOWLS",
-    animalType: "Generic",
-    sizeCategory: "MEDIUM",
-    price: 35.0,
-    stockQuantity: 15,
-  },
-  {
-    id: 4,
-    productType: "STANDING_ANIMAL",
-    animalType: "Giraffe",
-    sizeCategory: "LARGE",
-    price: 60.0,
-    stockQuantity: 6,
-  },
-  {
-    id: 5,
-    productType: "CHOPSTICK_HOLDERS",
-    animalType: "Bird",
-    sizeCategory: "SMALL",
-    price: 25.0,
-    stockQuantity: 20,
-  },
-]
-
-interface OrderItem {
-  id: string
-  productId: number
-  quantity: number
-  unitPrice: number
-  subtotal: number
+interface OrderItemDisplay {
+  id: string; // Client-side unique ID
+  productId: number;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  productType: string;
+  animalType: string;
+  sizeCategory: string;
 }
 
 export default function CreateOrderPage() {
   const router = useRouter()
+  const { data: customers, loading: customersLoading, error: customersError } = useCustomers();
+  const { data: finishedStock, loading: finishedStockLoading, error: finishedStockError } = useFinishedStock();
+
   const [customerId, setCustomerId] = useState("")
   const [notes, setNotes] = useState("")
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([])
+  const [orderItems, setOrderItems] = useState<OrderItemDisplay[]>([])
   const [currentItem, setCurrentItem] = useState({
     productId: "",
     quantity: 1,
   })
 
+  const safeCustomers = customers || [];
+  const safeFinishedStock = finishedStock || [];
+
   const addOrderItem = () => {
     if (currentItem.productId) {
-      const product = finishedProducts.find((p) => p.id.toString() === currentItem.productId)
-      if (product && currentItem.quantity <= product.stockQuantity) {
-        const newItem: OrderItem = {
+      const product = safeFinishedStock.find((p) => p.product.id.toString() === currentItem.productId)
+      if (product && currentItem.quantity <= product.quantity) {
+        const newItem: OrderItemDisplay = {
           id: Date.now().toString(),
-          productId: product.id,
+          productId: product.product.id,
           quantity: currentItem.quantity,
-          unitPrice: product.price,
-          subtotal: product.price * currentItem.quantity,
+          unitPrice: product.product.base_price,
+          subtotal: product.product.base_price * currentItem.quantity,
+          productType: product.product.product_type,
+          animalType: product.product.animal_type,
+          sizeCategory: product.product.size_category,
         }
 
         setOrderItems([...orderItems, newItem])
         setCurrentItem({ productId: "", quantity: 1 })
+      } else if (product) {
+        alert(`Not enough stock for ${product.product.product_type.replace(/_/g, " ")} - ${product.product.animal_type}. Available: ${product.quantity}`);
       }
     }
   }
@@ -103,26 +68,89 @@ export default function CreateOrderPage() {
   }
 
   const getProductInfo = (productId: number) => {
-    return finishedProducts.find((p) => p.id === productId)
+    return safeFinishedStock.find((p) => p.product.id === productId)?.product;
   }
 
-  const getCustomerName = (customerId: string) => {
-    return customers.find((c) => c.id.toString() === customerId)?.name || "Unknown"
+  const getCustomerName = (id: string) => {
+    return safeCustomers.find((c) => c.id.toString() === id)?.name || "Unknown";
   }
 
   const totalOrderValue = orderItems.reduce((sum, item) => sum + item.subtotal, 0)
 
-  const handleSubmit = () => {
-    if (orderItems.length > 0 && customerId) {
-      // In real app, this would submit to your backend
-      console.log("Creating order:", { customerId, notes, orderItems })
-      router.push("/orders")
+  const handleSubmit = async () => {
+    if (orderItems.length === 0 || !customerId) {
+      alert("Please add at least one product and select a customer.");
+      return;
+    }
+
+    const orderItemsPayload: ApiOrderItem[] = orderItems.map(item => ({
+      product: item.productId,
+      quantity: item.quantity,
+      unit_price: item.unitPrice,
+      subtotal: item.subtotal,
+    })) as ApiOrderItem[]; // Cast to ApiOrderItem[]
+
+    const payload: Partial<ApiOrder> = {
+      customer: parseInt(customerId),
+      notes: notes || undefined,
+      items: orderItemsPayload,
+    };
+
+    try {
+      await api.orders.create(payload);
+      alert("Order created successfully!");
+      router.push("/orders");
+    } catch (err: any) {
+      alert(`Failed to create order: ${err.message}`);
     }
   }
 
   const selectedProduct = currentItem.productId
-    ? finishedProducts.find((p) => p.id.toString() === currentItem.productId)
+    ? safeFinishedStock.find((p) => p.product.id.toString() === currentItem.productId)
     : null
+
+  if (customersLoading || finishedStockLoading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 mt-8">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (customersError || finishedStockError) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{customersError instanceof Error ? customersError.message : finishedStockError instanceof Error ? finishedStockError.message : "An unknown error occurred."}</AlertDescription>
+        </Alert>
+        <Button onClick={() => { /* refetchCustomers(); refetchFinishedStock(); */ }} className="mt-4">Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6">
@@ -147,7 +175,7 @@ export default function CreateOrderPage() {
                     <SelectValue placeholder="Select customer" />
                   </SelectTrigger>
                   <SelectContent>
-                    {customers.map((customer) => (
+                    {safeCustomers.map((customer) => (
                       <SelectItem key={customer.id} value={customer.id.toString()}>
                         {customer.name} ({customer.email})
                       </SelectItem>
@@ -184,10 +212,10 @@ export default function CreateOrderPage() {
                       <SelectValue placeholder="Select product" />
                     </SelectTrigger>
                     <SelectContent>
-                      {finishedProducts.map((product) => (
-                        <SelectItem key={product.id} value={product.id.toString()}>
-                          {product.productType.replace(/_/g, " ")} - {product.animalType} ({product.sizeCategory}) - $
-                          {product.price} (Stock: {product.stockQuantity})
+                      {safeFinishedStock.map((stockItem) => (
+                        <SelectItem key={stockItem.id} value={stockItem.product.id.toString()}>
+                          {stockItem.product.product_type.replace(/_/g, " ")} - {stockItem.product.animal_type} ({stockItem.product.size_category.replace(/_/g, " ")}) - $
+                          {stockItem.product.base_price} (Stock: {stockItem.quantity})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -198,7 +226,7 @@ export default function CreateOrderPage() {
                   <Input
                     type="number"
                     min="1"
-                    max={selectedProduct?.stockQuantity || 1}
+                    max={selectedProduct?.quantity || 1}
                     value={currentItem.quantity}
                     onChange={(e) => setCurrentItem({ ...currentItem, quantity: Number.parseInt(e.target.value) || 1 })}
                   />
@@ -209,20 +237,20 @@ export default function CreateOrderPage() {
                 <div className="p-3 bg-muted rounded-lg">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <span className="font-medium">Unit Price:</span> ${selectedProduct.price.toFixed(2)}
+                      <span className="font-medium">Unit Price:</span> ${selectedProduct.product.base_price.toFixed(2)}
                     </div>
                     <div>
-                      <span className="font-medium">Available Stock:</span> {selectedProduct.stockQuantity}
+                      <span className="font-medium">Available Stock:</span> {selectedProduct.quantity}
                     </div>
                     <div>
                       <span className="font-medium">Subtotal:</span> $
-                      {(selectedProduct.price * currentItem.quantity).toFixed(2)}
+                      {(selectedProduct.product.base_price * currentItem.quantity).toFixed(2)}
                     </div>
                   </div>
                 </div>
               )}
 
-              <Button onClick={addOrderItem} disabled={!currentItem.productId || !selectedProduct}>
+              <Button onClick={addOrderItem} disabled={!currentItem.productId || !selectedProduct || currentItem.quantity <= 0 || currentItem.quantity > (selectedProduct?.quantity || 0)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add to Order
               </Button>
@@ -238,17 +266,15 @@ export default function CreateOrderPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {orderItems.map((item) => {
-                    const product = getProductInfo(item.productId)
-                    return (
+                  {orderItems.map((item) => (
                       <div key={item.id} className="flex items-center justify-between p-3 border rounded-lg">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <Badge variant="outline">{product?.productType.replace(/_/g, " ")}</Badge>
-                            <Badge variant="secondary">{product?.animalType}</Badge>
+                            <Badge variant="outline">{item.productType.replace(/_/g, " ")}</Badge>
+                            <Badge variant="secondary">{item.animalType}</Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {product?.sizeCategory} • Qty: {item.quantity} • ${item.unitPrice.toFixed(2)} each
+                            {item.sizeCategory.replace(/_/g, " ")} • Qty: {item.quantity} • ${item.unitPrice.toFixed(2)} each
                           </p>
                         </div>
                         <div className="text-right mr-4">
@@ -258,8 +284,7 @@ export default function CreateOrderPage() {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    )
-                  })}
+                    ))}
                 </div>
               </CardContent>
             </Card>
@@ -291,7 +316,7 @@ export default function CreateOrderPage() {
               <div>
                 <Label className="text-sm font-medium">Product Types</Label>
                 <p className="text-sm text-muted-foreground">
-                  {new Set(orderItems.map((item) => getProductInfo(item.productId)?.productType)).size} different
+                  {new Set(orderItems.map((item) => item.productType)).size} different
                   products
                 </p>
               </div>

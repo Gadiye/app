@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,6 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Edit, Save, X, Plus } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { useProducts } from '@/hooks/useResource';
+import { api, Product } from '@/lib/api';
 
 const productTypes = [
   "SITTING_ANIMAL",
@@ -53,95 +57,102 @@ const sizeCategories = [
   "N/A",
 ]
 
-// Mock data
-const initialPrices = [
-  {
-    id: 1,
-    productType: "SITTING_ANIMAL",
-    animalType: "Elephant",
-    serviceCategory: "CARVING",
-    sizeCategory: "MEDIUM",
-    price: 25.0,
-  },
-  {
-    id: 2,
-    productType: "SITTING_ANIMAL",
-    animalType: "Lion",
-    serviceCategory: "CARVING",
-    sizeCategory: "MEDIUM",
-    price: 22.0,
-  },
-  {
-    id: 3,
-    productType: "YOGA_BOWLS",
-    animalType: "Generic",
-    serviceCategory: "CARVING",
-    sizeCategory: "SMALL",
-    price: 15.0,
-  },
-  {
-    id: 4,
-    productType: "ANIMAL_MASKS",
-    animalType: "Lion",
-    serviceCategory: "PAINTING",
-    sizeCategory: "LARGE",
-    price: 35.0,
-  },
-  {
-    id: 5,
-    productType: "STANDING_ANIMAL",
-    animalType: "Giraffe",
-    serviceCategory: "FINISHING",
-    sizeCategory: "LARGE",
-    price: 40.0,
-  },
-]
-
 export default function PricingPage() {
-  const [prices, setPrices] = useState(initialPrices)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [showAddForm, setShowAddForm] = useState(false)
+  const { data: products, loading, error, refetch } = useProducts();
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [newPrice, setNewPrice] = useState({
-    productType: "",
-    animalType: "",
-    serviceCategory: "",
-    sizeCategory: "MEDIUM",
-    price: "",
-  })
+    product_type: "",
+    animal_type: "",
+    service_category: "",
+    size_category: "MEDIUM",
+    base_price: "",
+  });
 
   const handleEdit = (id: number) => {
-    setEditingId(id)
-  }
+    setEditingId(id);
+  };
 
-  const handleSave = (id: number, updatedPrice: number) => {
-    setPrices(prices.map((p) => (p.id === id ? { ...p, price: updatedPrice } : p)))
-    setEditingId(null)
-  }
+  const handleSave = async (id: number, updatedPrice: number) => {
+    try {
+      await api.products.update(id, { base_price: updatedPrice });
+      refetch();
+      setEditingId(null);
+    } catch (err: any) {
+      alert(`Failed to update price: ${err.message}`);
+    }
+  };
 
   const handleCancel = () => {
-    setEditingId(null)
+    setEditingId(null);
+  };
+
+  const handleAddPrice = async () => {
+    if (newPrice.product_type && newPrice.animal_type && newPrice.service_category && newPrice.base_price) {
+      try {
+        await api.products.create({
+          product_type: newPrice.product_type,
+          animal_type: newPrice.animal_type,
+          service_category: newPrice.service_category,
+          size_category: newPrice.size_category,
+          base_price: Number.parseFloat(newPrice.base_price),
+        });
+        refetch();
+        setNewPrice({
+          product_type: "",
+          animal_type: "",
+          service_category: "",
+          size_category: "MEDIUM",
+          base_price: "",
+        });
+        setShowAddForm(false);
+      } catch (err: any) {
+        alert(`Failed to add price: ${err.message}`);
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 mt-8">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
-  const handleAddPrice = () => {
-    if (newPrice.productType && newPrice.animalType && newPrice.serviceCategory && newPrice.price) {
-      const price = {
-        id: Math.max(...prices.map((p) => p.id)) + 1,
-        productType: newPrice.productType,
-        animalType: newPrice.animalType,
-        serviceCategory: newPrice.serviceCategory,
-        sizeCategory: newPrice.sizeCategory,
-        price: Number.parseFloat(newPrice.price),
-      }
-      setPrices([...prices, price])
-      setNewPrice({
-        productType: "",
-        animalType: "",
-        serviceCategory: "",
-        sizeCategory: "MEDIUM",
-        price: "",
-      })
-      setShowAddForm(false)
-    }
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error instanceof Error ? error.message : "An unknown error occurred."}</AlertDescription>
+        </Alert>
+        <Button onClick={refetch} className="mt-4">Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -172,10 +183,10 @@ export default function PricingPage() {
               <h3 className="font-medium mb-4">Add New Price</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
-                  <Label htmlFor="productType">Product Type</Label>
+                  <Label htmlFor="product_type">Product Type</Label>
                   <Select
-                    value={newPrice.productType}
-                    onValueChange={(value) => setNewPrice({ ...newPrice, productType: value })}
+                    value={newPrice.product_type}
+                    onValueChange={(value) => setNewPrice({ ...newPrice, product_type: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select product" />
@@ -190,10 +201,10 @@ export default function PricingPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="animalType">Animal Type</Label>
+                  <Label htmlFor="animal_type">Animal Type</Label>
                   <Select
-                    value={newPrice.animalType}
-                    onValueChange={(value) => setNewPrice({ ...newPrice, animalType: value })}
+                    value={newPrice.animal_type}
+                    onValueChange={(value) => setNewPrice({ ...newPrice, animal_type: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select animal" />
@@ -208,10 +219,10 @@ export default function PricingPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="serviceCategory">Service</Label>
+                  <Label htmlFor="service_category">Service</Label>
                   <Select
-                    value={newPrice.serviceCategory}
-                    onValueChange={(value) => setNewPrice({ ...newPrice, serviceCategory: value })}
+                    value={newPrice.service_category}
+                    onValueChange={(value) => setNewPrice({ ...newPrice, service_category: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select service" />
@@ -226,10 +237,10 @@ export default function PricingPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="sizeCategory">Size</Label>
+                  <Label htmlFor="size_category">Size</Label>
                   <Select
-                    value={newPrice.sizeCategory}
-                    onValueChange={(value) => setNewPrice({ ...newPrice, sizeCategory: value })}
+                    value={newPrice.size_category}
+                    onValueChange={(value) => setNewPrice({ ...newPrice, size_category: value })}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -237,19 +248,19 @@ export default function PricingPage() {
                     <SelectContent>
                       {sizeCategories.map((size) => (
                         <SelectItem key={size} value={size}>
-                          {size.replace(/_/g, " ")}
+                          {size.replace(/ /g, "_")}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="price">Price ($)</Label>
+                  <Label htmlFor="base_price">Price ($)</Label>
                   <Input
                     type="number"
                     step="0.01"
-                    value={newPrice.price}
-                    onChange={(e) => setNewPrice({ ...newPrice, price: e.target.value })}
+                    value={newPrice.base_price}
+                    onChange={(e) => setNewPrice({ ...newPrice, base_price: e.target.value })}
                     placeholder="0.00"
                   />
                 </div>
@@ -275,30 +286,33 @@ export default function PricingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {prices.map((price) => (
-                <TableRow key={price.id}>
+              {products?.map((product) => (
+                <TableRow key={product.id}>
                   <TableCell>
-                    <Badge variant="outline">{price.productType.replace(/_/g, " ")}</Badge>
+                    <Badge variant="outline">{product.product_type.replace(/_/g, " ")}</Badge>
                   </TableCell>
-                  <TableCell>{price.animalType}</TableCell>
+                  <TableCell>{product.animal_type}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{price.serviceCategory}</Badge>
+                    <Badge variant="secondary">{product.service_category}</Badge>
                   </TableCell>
-                  <TableCell>{price.sizeCategory.replace(/_/g, " ")}</TableCell>
+                  <TableCell>{product.size_category.replace(/_/g, " ")}</TableCell>
                   <TableCell>
-                    {editingId === price.id ? (
+                    {editingId === product.id ? (
                       <PriceEditor
-                        initialPrice={price.price}
-                        onSave={(newPrice) => handleSave(price.id, newPrice)}
+                        initialPrice={product.base_price}
+                        onSave={(newPrice) => handleSave(product.id, newPrice)}
                         onCancel={handleCancel}
                       />
                     ) : (
-                      <span className="font-medium">${price.price.toFixed(2)}</span>
+                     <span className="font-medium">
+                            ${Number(product.base_price).toFixed(2)}
+                        </span>
+
                     )}
                   </TableCell>
                   <TableCell>
-                    {editingId === price.id ? null : (
-                      <Button variant="ghost" size="sm" onClick={() => handleEdit(price.id)}>
+                    {editingId === product.id ? null : (
+                      <Button variant="ghost" size="sm" onClick={() => handleEdit(product.id)}>
                         <Edit className="h-4 w-4" />
                       </Button>
                     )}

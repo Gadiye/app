@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,60 +18,13 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, Search, Edit, Eye, Mail, Phone, MapPin } from "lucide-react"
 import Link from "next/link"
-
-// Mock customer data
-const customers = [
-  {
-    id: 1,
-    name: "Sarah Johnson",
-    email: "sarah.johnson@email.com",
-    phone: "+1 (555) 123-4567",
-    address: "123 Main St, Anytown, ST 12345",
-    createdDate: "2024-01-15",
-    isActive: true,
-    totalOrders: 5,
-    totalSpent: 1250.0,
-    lastOrderDate: "2024-01-20",
-  },
-  {
-    id: 2,
-    name: "Michael Chen",
-    email: "m.chen@email.com",
-    phone: "+1 (555) 234-5678",
-    address: "456 Oak Ave, Another City, ST 67890",
-    createdDate: "2024-01-10",
-    isActive: true,
-    totalOrders: 3,
-    totalSpent: 875.0,
-    lastOrderDate: "2024-01-18",
-  },
-  {
-    id: 3,
-    name: "Emily Rodriguez",
-    email: "emily.r@email.com",
-    phone: "+1 (555) 345-6789",
-    address: "789 Pine Rd, Somewhere, ST 13579",
-    createdDate: "2024-01-05",
-    isActive: true,
-    totalOrders: 8,
-    totalSpent: 2100.0,
-    lastOrderDate: "2024-01-22",
-  },
-  {
-    id: 4,
-    name: "David Wilson",
-    email: "d.wilson@email.com",
-    phone: "+1 (555) 456-7890",
-    address: "321 Elm St, Elsewhere, ST 24680",
-    createdDate: "2023-12-20",
-    isActive: false,
-    totalOrders: 2,
-    totalSpent: 450.0,
-    lastOrderDate: "2023-12-25",
-  },
-]
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { useCustomers } from '@/hooks/useResource';
+import { api } from '@/lib/api';
 
 export default function CustomersPage() {
+  const { data: customers, loading, error, refetch } = useCustomers();
   const [searchTerm, setSearchTerm] = useState("")
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [newCustomer, setNewCustomer] = useState({
@@ -81,22 +34,79 @@ export default function CustomersPage() {
     address: "",
   })
 
-  const filteredCustomers = customers.filter(
-    (customer) =>
-      customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.email.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const safeCustomers = customers || [];
 
-  const handleAddCustomer = () => {
-    // In real app, this would submit to your backend
-    console.log("Adding customer:", newCustomer)
-    setNewCustomer({ name: "", email: "", phone: "", address: "" })
-    setShowAddDialog(false)
+  const filteredCustomers = useMemo(() => {
+    return safeCustomers.filter(
+      (customer) =>
+        customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (customer.email && customer.email.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  }, [safeCustomers, searchTerm]);
+
+  const handleAddCustomer = async () => {
+    try {
+      await api.customers.create(newCustomer);
+      refetch();
+      setNewCustomer({ name: "", email: "", phone: "", address: "" });
+      setShowAddDialog(false);
+    } catch (err: any) {
+      alert(`Failed to add customer: ${err.message}`);
+    }
+  };
+
+  const activeCustomers = safeCustomers.filter((c) => c.is_active).length;
+  const totalRevenue = 0; // Not directly available from API
+  const avgOrderValue = 0; // Not directly available from API
+  const newCustomersThisMonth = 0; // Not directly available from API
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 mt-8">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
-  const activeCustomers = customers.filter((c) => c.isActive).length
-  const totalRevenue = customers.reduce((sum, c) => sum + c.totalSpent, 0)
-  const avgOrderValue = totalRevenue / customers.reduce((sum, c) => sum + c.totalOrders, 0)
+  if (error) {
+  const safeError = error as unknown;
+
+  return (
+    <div className="container mx-auto p-6">
+      <Alert variant="destructive">
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>
+          {safeError instanceof Error ? safeError.message : "An unknown error occurred."}
+        </AlertDescription>
+      </Alert>
+      <Button onClick={refetch} className="mt-4">Retry</Button>
+    </div>
+  );
+}
+
 
   return (
     <div className="container mx-auto p-6">
@@ -178,7 +188,7 @@ export default function CustomersPage() {
             <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{customers.length}</div>
+            <div className="text-2xl font-bold">{safeCustomers.length}</div>
             <p className="text-xs text-muted-foreground">{activeCustomers} active</p>
           </CardContent>
         </Card>
@@ -189,7 +199,7 @@ export default function CustomersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${totalRevenue.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">From all customers</p>
+            <p className="text-xs text-muted-foreground">From all customers (Not yet integrated)</p>
           </CardContent>
         </Card>
 
@@ -199,7 +209,7 @@ export default function CustomersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${avgOrderValue.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Per order</p>
+            <p className="text-xs text-muted-foreground">Per order (Not yet integrated)</p>
           </CardContent>
         </Card>
 
@@ -208,8 +218,8 @@ export default function CustomersPage() {
             <CardTitle className="text-sm font-medium">New This Month</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">3</div>
-            <p className="text-xs text-muted-foreground">New customers</p>
+            <div className="text-2xl font-bold">{newCustomersThisMonth}</div>
+            <p className="text-xs text-muted-foreground">New customers (Not yet integrated)</p>
           </CardContent>
         </Card>
       </div>
@@ -244,9 +254,7 @@ export default function CustomersPage() {
               <TableRow>
                 <TableHead>Customer</TableHead>
                 <TableHead>Contact</TableHead>
-                <TableHead>Orders</TableHead>
-                <TableHead>Total Spent</TableHead>
-                <TableHead>Last Order</TableHead>
+                <TableHead>Date Joined</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -259,7 +267,7 @@ export default function CustomersPage() {
                       <div className="font-medium">{customer.name}</div>
                       <div className="text-sm text-muted-foreground flex items-center mt-1">
                         <MapPin className="h-3 w-3 mr-1" />
-                        {customer.address.split(",")[0]}
+                        {customer.address}
                       </div>
                     </div>
                   </TableCell>
@@ -279,12 +287,10 @@ export default function CustomersPage() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="font-medium">{customer.totalOrders}</TableCell>
-                  <TableCell className="font-medium">${customer.totalSpent.toFixed(2)}</TableCell>
-                  <TableCell>{customer.lastOrderDate}</TableCell>
+                  <TableCell>{new Date(customer.created_date).toLocaleDateString()}</TableCell>
                   <TableCell>
-                    <Badge variant={customer.isActive ? "default" : "secondary"}>
-                      {customer.isActive ? "Active" : "Inactive"}
+                    <Badge variant={customer.is_active ? "default" : "secondary"}>
+                      {customer.is_active ? "Active" : "Inactive"}
                     </Badge>
                   </TableCell>
                   <TableCell>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,57 +10,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Package, Plus } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
-// Mock active jobs with delivery tracking
-const activeJobs = [
-  {
-    id: 1024,
-    serviceCategory: "CARVING",
-    artisan: "John Smith",
-    status: "IN_PROGRESS",
-    items: [
-      {
-        id: 1,
-        productType: "SITTING_ANIMAL",
-        animalType: "Elephant",
-        sizeCategory: "MEDIUM",
-        quantityOrdered: 20,
-        quantityReceived: 0,
-        quantityAccepted: 0,
-        unitPrice: 30.0,
-        deliveries: [],
-      },
-    ],
-  },
-  {
-    id: 1025,
-    serviceCategory: "PAINTING",
-    artisan: "Maria Garcia",
-    status: "PARTIALLY_RECEIVED",
-    items: [
-      {
-        id: 2,
-        productType: "ANIMAL_MASKS",
-        animalType: "Lion",
-        sizeCategory: "LARGE",
-        quantityOrdered: 15,
-        quantityReceived: 8,
-        quantityAccepted: 7,
-        unitPrice: 40.0,
-        deliveries: [
-          {
-            id: 1,
-            quantityReceived: 8,
-            quantityAccepted: 7,
-            rejectionReason: "QUALITY",
-            deliveryDate: "2024-01-15",
-            notes: "One piece had paint smudging",
-          },
-        ],
-      },
-    ],
-  },
-]
+import { useJobs, useJob } from '@/hooks/useResource';
+import { api, Job, JobItem, JobDelivery } from '@/lib/api';
 
 const rejectionReasons = [
   { value: "QUALITY", label: "Quality Issues" },
@@ -75,8 +29,21 @@ interface Delivery {
   notes?: string
 }
 
+// Extended JobItem interface to include deliveries
+interface JobItemWithDeliveries extends JobItem {
+  deliveries?: JobDelivery[]
+}
+
+// Extended Job interface to include items with deliveries
+interface JobWithDeliveries extends Job {
+  items: JobItemWithDeliveries[]
+}
+
 export default function CompleteJobPage() {
   const router = useRouter()
+  const { data: jobs, loading, error, refetch } = useJobs();
+  const [detailedJob, setDetailedJob] = useState<JobWithDeliveries | null>(null);
+
   const [selectedJobId, setSelectedJobId] = useState("")
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
   const [newDelivery, setNewDelivery] = useState<Delivery>({
@@ -86,8 +53,18 @@ export default function CompleteJobPage() {
     notes: "",
   })
 
-  const selectedJob = activeJobs.find((job) => job.id.toString() === selectedJobId)
-  const selectedItem = selectedJob?.items.find((item) => item.id === selectedItemId)
+  const { data: fetchedJob, loading: jobLoading, error: jobError } = useJob(selectedJobId ? parseInt(selectedJobId) : 0, { immediate: !!selectedJobId });
+
+  useEffect(() => {
+    if (fetchedJob) {
+      setDetailedJob(fetchedJob as JobWithDeliveries);
+    }
+  }, [fetchedJob]);
+
+  const safeJobs = jobs || [];
+
+  const selectedJob = detailedJob;
+  const selectedItem = selectedJob?.items?.find((item) => item.id === selectedItemId) ?? null;
 
   const handleJobSelect = (jobId: string) => {
     setSelectedJobId(jobId)
@@ -104,50 +81,55 @@ export default function CompleteJobPage() {
     })
   }
 
-  const handleAddDelivery = () => {
-    if (selectedItem && newDelivery.quantityReceived > 0) {
-      const remainingQuantity = selectedItem.quantityOrdered - selectedItem.quantityReceived
+  const handleAddDelivery = async () => {
+    if (selectedJob && selectedItem && newDelivery.quantityReceived > 0) {
+      const remainingQuantity = selectedItem.quantity_ordered - selectedItem.quantity_received;
 
       if (newDelivery.quantityReceived > remainingQuantity) {
-        alert(`Cannot receive ${newDelivery.quantityReceived} pieces. Only ${remainingQuantity} pieces remain.`)
-        return
+        alert(`Cannot receive ${newDelivery.quantityReceived} pieces. Only ${remainingQuantity} pieces remain.`);
+        return;
       }
 
-      // In real app, this would create a JobDelivery record
-      console.log("Creating delivery:", {
-        jobItemId: selectedItem.id,
-        ...newDelivery,
-      })
+      try {
+        const updatedItem = await api.jobs.createDelivery(selectedJob.job_id, selectedItem.id, {
+          quantity_received: newDelivery.quantityReceived,
+          quantity_accepted: newDelivery.quantityAccepted,
+          rejection_reason: newDelivery.rejectionReason,
+          notes: newDelivery.notes,
+        });
 
-      // Update mock data (in real app, this would be handled by the backend)
-      selectedItem.deliveries.push({
-        id: Date.now(),
-        deliveryDate: new Date().toISOString().split("T")[0],
-        ...newDelivery,
-      })
+        // Update the selected item with the new data
+        if (selectedJob) {
+          const updatedItems = selectedJob.items.map(item => 
+            item.id === selectedItem.id ? updatedItem : item
+          );
+          setDetailedJob({ ...selectedJob, items: updatedItems });
+        }
 
-      selectedItem.quantityReceived += newDelivery.quantityReceived
-      selectedItem.quantityAccepted += newDelivery.quantityAccepted
-
-      resetDeliveryForm()
+        refetch(); // Refetch jobs to update UI
+        resetDeliveryForm();
+        alert("Delivery recorded successfully!");
+      } catch (err: any) {
+        alert(`Failed to record delivery: ${err.message}`);
+      }
     }
   }
 
-  const getRemainingQuantity = (item: any) => {
-    return item.quantityOrdered - item.quantityReceived
+  const getRemainingQuantity = (item: JobItemWithDeliveries) => {
+    return item.quantity_ordered - item.quantity_received;
   }
 
-  const getCompletionPercentage = (item: any) => {
-    return (item.quantityReceived / item.quantityOrdered) * 100
+  const getCompletionPercentage = (item: JobItemWithDeliveries) => {
+    return (item.quantity_received / item.quantity_ordered) * 100;
   }
 
-  const getJobStatus = (job: any) => {
-    const totalOrdered = job.items.reduce((sum: number, item: any) => sum + item.quantityOrdered, 0)
-    const totalReceived = job.items.reduce((sum: number, item: any) => sum + item.quantityReceived, 0)
+  const getJobStatus = (job: JobWithDeliveries) => {
+    const totalOrdered = (job.items ?? []).reduce((sum, item) => sum + item.quantity_ordered, 0);
+    const totalReceived = (job.items ?? []).reduce((sum, item) => sum + item.quantity_received, 0);
 
-    if (totalReceived === 0) return "IN_PROGRESS"
-    if (totalReceived < totalOrdered) return "PARTIALLY_RECEIVED"
-    return "COMPLETED"
+    if (totalReceived === 0) return "IN_PROGRESS";
+    if (totalReceived < totalOrdered) return "PARTIALLY_RECEIVED";
+    return "COMPLETED";
   }
 
   const getStatusColor = (status: string) => {
@@ -161,6 +143,63 @@ export default function CompleteJobPage() {
       default:
         return "bg-gray-100 text-gray-800"
     }
+  }
+
+  const getProductDisplay = (product: any) => {
+    if (typeof product === 'object' && product !== null) {
+      return `${product.product_type} - ${product.animal_type}`;
+    }
+    return "Product";
+  }
+
+  const getArtisanDisplay = (artisan: any) => {
+    if (typeof artisan === 'object' && artisan !== null) {
+      return artisan.name;
+    }
+    return `Artisan ${artisan}`;
+  }
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 mt-8">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error instanceof Error ? error.message : "An unknown error occurred."}</AlertDescription>
+        </Alert>
+        <Button onClick={refetch} className="mt-4">Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -184,14 +223,14 @@ export default function CompleteJobPage() {
                   <SelectValue placeholder="Select a job" />
                 </SelectTrigger>
                 <SelectContent>
-                  {activeJobs.map((job) => (
-                    <SelectItem key={job.id} value={job.id.toString()}>
+                  {safeJobs.map((job) => (
+                    <SelectItem key={job.job_id} value={job.job_id.toString()}>
                       <div className="flex items-center justify-between w-full">
                         <span>
-                          Job #{job.id} - {job.artisan}
+                          Job #{job.job_id} - {job.artisans_involved?.join(', ') || job.created_by}
                         </span>
-                        <Badge className={`ml-2 ${getStatusColor(getJobStatus(job))}`}>
-                          {getJobStatus(job).replace("_", " ")}
+                        <Badge className={`ml-2 ${getStatusColor(getJobStatus(job as JobWithDeliveries))}`}>
+                          {getJobStatus(job as JobWithDeliveries).replace("_", " ")}
                         </Badge>
                       </div>
                     </SelectItem>
@@ -210,7 +249,7 @@ export default function CompleteJobPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {selectedJob.items.map((item) => {
+                  {(selectedJob.items ?? []).map((item) => {
                     const remaining = getRemainingQuantity(item)
                     const completion = getCompletionPercentage(item)
 
@@ -224,15 +263,15 @@ export default function CompleteJobPage() {
                       >
                         <div className="flex items-center justify-between mb-2">
                           <div>
-                            <Badge variant="outline" className="mb-1">
-                              {item.productType.replace(/_/g, " ")}
+                            <Badge variant="outline">
+                              {getProductDisplay(item.product)}
                             </Badge>
-                            <p className="text-sm text-muted-foreground">
-                              {item.animalType} • {item.sizeCategory.replace(/_/g, " ")}
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Artisan: {getArtisanDisplay(item.artisan)}
                             </p>
                           </div>
                           <div className="text-right">
-                            <p className="font-medium">${(item.unitPrice * item.quantityAccepted).toFixed(2)}</p>
+                            <p className="font-medium">${(item.original_amount * item.quantity_accepted).toFixed(2)}</p>
                             <p className="text-xs text-muted-foreground">Current payment</p>
                           </div>
                         </div>
@@ -240,7 +279,7 @@ export default function CompleteJobPage() {
                         <div className="space-y-2">
                           <div className="flex justify-between text-sm">
                             <span>
-                              Progress: {item.quantityReceived}/{item.quantityOrdered}
+                              Progress: {item.quantity_received}/{item.quantity_ordered}
                             </span>
                             <span>{completion.toFixed(0)}% complete</span>
                           </div>
@@ -265,7 +304,7 @@ export default function CompleteJobPage() {
               <CardHeader>
                 <CardTitle>Record New Delivery</CardTitle>
                 <CardDescription>
-                  Add a delivery for {selectedItem.productType.replace(/_/g, " ")} - {selectedItem.animalType}
+                  Add a delivery for Job Item {selectedItem.id}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -279,16 +318,14 @@ export default function CompleteJobPage() {
                         min="1"
                         max={getRemainingQuantity(selectedItem)}
                         value={newDelivery.quantityReceived || ""}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const received = Number.parseInt(e.target.value) || 0;
                           setNewDelivery({
                             ...newDelivery,
-                            quantityReceived: Number.parseInt(e.target.value) || 0,
-                            quantityAccepted: Math.min(
-                              Number.parseInt(e.target.value) || 0,
-                              newDelivery.quantityAccepted,
-                            ),
-                          })
-                        }
+                            quantityReceived: received,
+                            quantityAccepted: received, // Default accepted to received
+                          });
+                        }}
                         placeholder="0"
                       />
                       <p className="text-xs text-muted-foreground mt-1">
@@ -356,7 +393,7 @@ export default function CompleteJobPage() {
           )}
 
           {/* Delivery History */}
-          {selectedItem && selectedItem.deliveries.length > 0 && (
+          {selectedItem && (selectedItem.deliveries ?? []).length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>Delivery History</CardTitle>
@@ -364,24 +401,24 @@ export default function CompleteJobPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {selectedItem.deliveries.map((delivery: any) => (
+                  {(selectedItem.deliveries ?? []).map((delivery) => (
                     <div key={delivery.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div className="flex items-center space-x-3">
                         <Package className="h-4 w-4 text-blue-500" />
                         <div>
                           <p className="text-sm font-medium">
-                            Received: {delivery.quantityReceived}, Accepted: {delivery.quantityAccepted}
+                            Received: {delivery.quantity_received}, Accepted: {delivery.quantity_accepted}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(delivery.deliveryDate).toLocaleDateString()}
+                            {new Date(delivery.delivery_date).toLocaleDateString()}
                           </p>
                           {delivery.notes && <p className="text-xs text-muted-foreground mt-1">{delivery.notes}</p>}
                         </div>
                       </div>
                       <div className="text-right">
-                        {delivery.rejectionReason && (
+                        {delivery.rejection_reason && (
                           <Badge variant="destructive" className="text-xs">
-                            {rejectionReasons.find((r) => r.value === delivery.rejectionReason)?.label}
+                            {rejectionReasons.find((r) => r.value === delivery.rejection_reason)?.label}
                           </Badge>
                         )}
                       </div>
@@ -399,17 +436,17 @@ export default function CompleteJobPage() {
             <Card className="sticky top-6">
               <CardHeader>
                 <CardTitle>Job Summary</CardTitle>
-                <CardDescription>Job #{selectedJob.id} progress</CardDescription>
+                <CardDescription>Job #{selectedJob.job_id} progress</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <Label className="text-sm font-medium">Artisan</Label>
-                  <p className="text-sm text-muted-foreground">{selectedJob.artisan}</p>
+                  <Label className="text-sm font-medium">Created By</Label>
+                  <p className="text-sm text-muted-foreground">{selectedJob.created_by}</p>
                 </div>
 
                 <div>
                   <Label className="text-sm font-medium">Service Category</Label>
-                  <p className="text-sm text-muted-foreground">{selectedJob.serviceCategory}</p>
+                  <p className="text-sm text-muted-foreground">{selectedJob.service_category}</p>
                 </div>
 
                 <div>
@@ -423,19 +460,19 @@ export default function CompleteJobPage() {
                   <div className="flex justify-between">
                     <span className="text-sm">Total Ordered:</span>
                     <span className="font-medium">
-                      {selectedJob.items.reduce((sum, item) => sum + item.quantityOrdered, 0)} pieces
+                      {(selectedJob.items ?? []).reduce((sum, item) => sum + item.quantity_ordered, 0)} pieces
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Total Received:</span>
                     <span className="font-medium">
-                      {selectedJob.items.reduce((sum, item) => sum + item.quantityReceived, 0)} pieces
+                      {(selectedJob.items ?? []).reduce((sum, item) => sum + item.quantity_received, 0)} pieces
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Total Accepted:</span>
                     <span className="font-medium">
-                      {selectedJob.items.reduce((sum, item) => sum + item.quantityAccepted, 0)} pieces
+                      {(selectedJob.items ?? []).reduce((sum, item) => sum + item.quantity_accepted, 0)} pieces
                     </span>
                   </div>
                 </div>
@@ -443,21 +480,15 @@ export default function CompleteJobPage() {
                 <div className="pt-4 border-t">
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <span className="text-sm">Original Payment:</span>
+                      <span className="text-sm">Total Cost:</span>
                       <span className="font-medium">
-                        $
-                        {selectedJob.items
-                          .reduce((sum, item) => sum + item.unitPrice * item.quantityOrdered, 0)
-                          .toFixed(2)}
+                        ${selectedJob.total_cost?.toFixed(2) || "0.00"}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm">Current Payment:</span>
+                      <span className="text-sm">Final Payment:</span>
                       <span className="font-medium text-green-600">
-                        $
-                        {selectedJob.items
-                          .reduce((sum, item) => sum + item.unitPrice * item.quantityAccepted, 0)
-                          .toFixed(2)}
+                        ${selectedJob.total_final_payment?.toFixed(2) || "0.00"}
                       </span>
                     </div>
                   </div>
@@ -468,10 +499,10 @@ export default function CompleteJobPage() {
                     <Label className="text-sm font-medium">Selected Item</Label>
                     <div className="mt-2 p-3 bg-blue-50 rounded-lg">
                       <p className="text-sm font-medium">
-                        {selectedItem.productType.replace(/_/g, " ")} - {selectedItem.animalType}
+                        {getProductDisplay(selectedItem.product)}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {selectedItem.quantityReceived}/{selectedItem.quantityOrdered} received
+                        {selectedItem.quantity_received}/{selectedItem.quantity_ordered} received
                       </p>
                       <p className="text-xs text-muted-foreground">{getRemainingQuantity(selectedItem)} remaining</p>
                     </div>

@@ -10,7 +10,7 @@ import { Download, BarChart3, PieChart, TrendingUp, DollarSign } from "lucide-re
 import { DateRangePicker } from "@/components/date-range-picker"
 
 export default function ReportsPage() {
-  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>({
+  const [dateRange, setDateRange] = useState<any>({
     from: new Date(2024, 0, 1),
     to: new Date(),
   })

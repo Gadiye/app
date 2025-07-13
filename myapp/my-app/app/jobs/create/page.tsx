@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react" // Added useEffect and useCallback
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Trash2, Calculator, Check, Loader2 } from "lucide-react" // Added Loader2
+import { Plus, Trash2, Calculator, Check, Loader2, AlertCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import {
   Dialog,
@@ -19,20 +19,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Added Alert for errors
-import { Skeleton } from "@/components/ui/skeleton"; // Added Skeleton for loading
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Skeleton } from "@/components/ui/skeleton"
 
 // Import API hooks and types
-import {
-  useArtisans,
-  useCreateJob,
-  // useProductPrices, // Uncomment if you create a backend endpoint for prices
-  Artisan,
-  JobItemPayload,
-  CreateJobPayload,
-} from '@/hooks/useApi'; // Adjust the path as per your file structure
+import { useArtisans } from '@/hooks/useResource';
+import { useCreateJob, JobItemData, CreateJobData } from '@/hooks/useCreateJob';
+import { useProductPrice } from '@/hooks/useProductPrice';
+import { Artisan } from '@/lib/api';
 
-// --- CONSTANTS (These are good to keep client-side if they're static) ---
+// --- CONSTANTS ---
 const PRODUCT_TYPES = [
   "SITTING_ANIMAL", "YOGA_BOWLS", "PER_DAY", "YOGA_ANIMALS", "CHOPSTICK_HOLDERS",
   "STANDING_ANIMAL", "BOTTLE_CORKS", "SANTA_YOGA_BOWLS", "SANTA_YOGA_ANIMALS",
@@ -44,78 +40,28 @@ const PRODUCT_TYPES = [
 const SERVICE_CATEGORIES = ["CARVING", "CUTTING", "PAINTING", "SANDING", "FINISHING", "FINISHED"]
 
 const SIZE_CATEGORIES = [
-  "SMALL", "MEDIUM", "LARGE", "WITH_CLOTHES", "WITH_DRESS", "WITH_SUIT",
-  "WITH_OVERALL", "4IN", "8X8", "6X6", "5X4", "XMAS_DRESS", "IN_PAIRS", "12IN", "8IN", "N/A",
+  "SMALL", "MEDIUM", "LARGE", "WITH CLOTHES", "WITH DRESS", "WITH SUIT",
+  "WITH OVERALL", "4IN", "8X8", "6X6", "5X4", "XMAS DRESS", "IN PAIRS", "12IN", "8IN", "N/A",
 ]
 
-const ANIMAL_TYPES = ["Elephant", "Lion", "Giraffe", "Bird", "Zebra", "Monkey", "Rhino", "Generic"]
+const ANIMAL_TYPES = [
+  "LION", "ZEBRA", "GIRAFFE", "DONKEY", "LEOPARD", "CHEETAH", "ELEPHANT",
+  "CAT", "HIPPO", "GAZELLE", "LIONESS", "BUFFALO", "RHINO", "GUINEA FOWL",
+]
 
-// --- MOCK PRODUCT PRICING (THIS NEEDS TO BE MOVED TO BACKEND OR A DYNAMIC FETCH) ---
-// For now, we'll keep it as a mock, but ideally, this would come from your Django API
-const mockProductPrices = [
-  { productType: "SITTING_ANIMAL", animalType: "Elephant", serviceCategory: "CARVING", sizeCategory: "MEDIUM", price: 30.0 },
-  { productType: "SITTING_ANIMAL", animalType: "Lion", serviceCategory: "CARVING", sizeCategory: "MEDIUM", price: 28.0 },
-  { productType: "ANIMAL_MASKS", animalType: "Lion", serviceCategory: "CARVING", sizeCategory: "LARGE", price: 40.0 },
-  { productType: "YOGA_BOWLS", animalType: "Generic", serviceCategory: "CARVING", sizeCategory: "MEDIUM", price: 25.0 },
-  // Default fallback prices by service category (CRUCIAL TO HAVE THESE ON BACKEND)
-  { productType: "*", animalType: "*", serviceCategory: "CARVING", sizeCategory: "*", price: 25.0 },
-  { productType: "*", animalType: "*", serviceCategory: "CUTTING", sizeCategory: "*", price: 15.0 },
-  { productType: "*", animalType: "*", serviceCategory: "PAINTING", sizeCategory: "*", price: 20.0 },
-  { productType: "*", animalType: "*", serviceCategory: "SANDING", sizeCategory: "*", price: 18.0 },
-  { productType: "*", animalType: "*", serviceCategory: "FINISHING", sizeCategory: "*", price: 22.0 },
-  { productType: "*", animalType: "*", serviceCategory: "FINISHED", sizeCategory: "*", price: 35.0 },
-];
-
-// Function to look up price from mock database (will eventually be replaced by API call)
-const getProductPrice = (productType: string, animalType: string, serviceCategory: string, sizeCategory: string) => {
-  // Ideally, this entire lookup logic would be on your Django backend.
-  // The frontend would call a price lookup API, e/g., /api/calculate-price/
-  // and send productType, animalType, serviceCategory, sizeCategory as query params.
-
-  const exactMatch = mockProductPrices.find(
-    (p) =>
-      p.productType === productType &&
-      p.animalType === animalType &&
-      p.serviceCategory === serviceCategory &&
-      p.sizeCategory === sizeCategory,
-  );
-
-  if (exactMatch) return exactMatch.price;
-
-  const sizeDefaultMatch = mockProductPrices.find(
-    (p) =>
-      p.productType === productType &&
-      p.animalType === animalType &&
-      p.serviceCategory === serviceCategory &&
-      p.sizeCategory === "*",
-  );
-
-  if (sizeDefaultMatch) return sizeDefaultMatch.price;
-
-  const animalDefaultMatch = mockProductPrices.find(
-    (p) => p.productType === productType && p.animalType === "*" && p.serviceCategory === serviceCategory,
-  );
-
-  if (animalDefaultMatch) return animalDefaultMatch.price;
-
-  const serviceDefaultMatch = mockProductPrices.find(
-    (p) => p.productType === "*" && p.animalType === "*" && p.serviceCategory === serviceCategory,
-  );
-
-  return serviceDefaultMatch ? serviceDefaultMatch.price : 20.0; // Default fallback
-};
-
-
-interface JobItemDisplay extends JobItemPayload {
-  id: string; // Client-side ID for list key
-  artisanName: string; // For display purposes
+interface JobItemDisplay extends JobItemData {
+  id: string;
+  artisanName: string;
+  total_price: number;
+  product_type: string;
+  animal_type: string;
+  size_category: string;
 }
 
 export default function CreateJobPage() {
   const router = useRouter();
   const { data: artisans, loading: artisansLoading, error: artisansError } = useArtisans();
-  const { createJob, loading: createJobLoading, error: createJobError, jobResponse } = useCreateJob();
-  // const { data: productPricesData, loading: pricesLoading, error: pricesError } = useProductPrices(); // Uncomment and use if you have a price API
+  const { createJob, loading: createJobLoading, error: createJobError } = useCreateJob();
 
   const [serviceCategory, setServiceCategory] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
@@ -128,57 +74,134 @@ export default function CreateJobPage() {
     productType: "",
     animalType: "",
     sizeCategory: "MEDIUM",
-    quantity: "",
+    quantity: 1, // Default to 1 instead of 0
   });
 
-  // Calculate statistics based on fetched artisans
-  const safeArtisans = artisans || [];
+  // Enable the price query only when all required fields are filled
+  const shouldFetchPrice = !!(
+    currentItem.productType && 
+    currentItem.animalType && 
+    serviceCategory && 
+    currentItem.sizeCategory
+  );
+
+  const { data: productPrice, loading: priceLoading, error: priceError } = useProductPrice(
+    currentItem.productType,
+    currentItem.animalType,
+    serviceCategory,
+    currentItem.sizeCategory,
+    { enabled: shouldFetchPrice }
+  );
+
+  // Debug logging
+  useEffect(() => {
+    console.log("Current item state:", currentItem);
+    console.log("Service category:", serviceCategory);
+    console.log("Should fetch price:", shouldFetchPrice);
+    console.log("Product price data:", productPrice);
+    console.log("Price loading:", priceLoading);
+    console.log("Price error:", priceError);
+  }, [currentItem, serviceCategory, shouldFetchPrice, productPrice, priceLoading, priceError]);
 
   const addJobItem = () => {
-    if (currentItem.artisanId && currentItem.productType && currentItem.animalType && serviceCategory) {
-      const unitPrice = getProductPrice(
-        currentItem.productType,
-        currentItem.animalType,
-        serviceCategory,
-        currentItem.sizeCategory,
-      );
+    console.log("Add item button clicked");
+    console.log("Validation checks:", {
+      artisanId: currentItem.artisanId,
+      productType: currentItem.productType,
+      animalType: currentItem.animalType,
+      serviceCategory: serviceCategory,
+      quantity: currentItem.quantity,
+      productPrice: productPrice,
+      productPriceId: productPrice?.id,
+    });
 
-      const totalPrice = unitPrice * currentItem.quantity;
-
-      const selectedArtisan = safeArtisans.find((a) => a.id === currentItem.artisanId);
-
-      if (!selectedArtisan) return; // Should not happen if select is correctly populated
-
-      const newItem: JobItemDisplay = {
-        id: Date.now().toString(), // Client-side unique ID
-        artisan: currentItem.artisanId, // Backend expects 'artisan' ID
-        artisanName: selectedArtisan.name, // For display
-        product_type: currentItem.productType, // Backend expects snake_case
-        animal_type: currentItem.animalType, // Backend expects snake_case
-        size_category: currentItem.sizeCategory, // Backend expects snake_case
-        quantity: currentItem.quantity,
-        unit_price: unitPrice,
-        total_price: totalPrice,
-      };
-
-      setJobItems([...jobItems, newItem]);
-      setCurrentItem({
-        artisanId: currentItem.artisanId, // Keep the same artisan for convenience
-        productType: "",
-        animalType: "",
-        sizeCategory: "MEDIUM",
-        quantity: 1,
-      });
+    if (!currentItem.artisanId) {
+      alert("Please select an artisan");
+      return;
     }
+    if (!currentItem.productType) {
+      alert("Please select a product type");
+      return;
+    }
+    if (!currentItem.animalType) {
+      alert("Please select an animal type");
+      return;
+    }
+    if (!serviceCategory) {
+      alert("Please select a service category");
+      return;
+    }
+    if (currentItem.quantity <= 0) {
+      alert("Please enter a valid quantity");
+      return;
+    }
+    if (!productPrice) {
+      alert("Price information not available. Please try again.");
+      return;
+    }
+    if (typeof productPrice.price !== 'number') {
+      alert("Invalid price data. Please try again.");
+      return;
+    }
+
+    if (!productPrice.id) {
+      alert("Could not find a product ID for the selected options. Please try again.");
+      return;
+    }
+
+    const unitPrice = productPrice.price;
+    const totalPrice = unitPrice * currentItem.quantity;
+    const selectedArtisan = artisans?.find((a) => a.id === currentItem.artisanId);
+
+    if (!selectedArtisan) {
+      alert("Selected artisan not found");
+      return;
+    }
+
+    const newItem: JobItemDisplay = {
+      id: Date.now().toString(),
+      artisan: currentItem.artisanId,
+      product: productPrice.id,
+      artisanName: selectedArtisan.name,
+      product_type: currentItem.productType,
+      animal_type: currentItem.animalType,
+      size_category: currentItem.sizeCategory,
+      quantity_ordered: currentItem.quantity,
+      total_price: totalPrice,
+      original_amount: unitPrice,
+    };
+
+    console.log("Adding new item:", newItem);
+    setJobItems([...jobItems, newItem]);
+    
+    // Reset form but keep artisan selected
+    setCurrentItem({
+      artisanId: currentItem.artisanId,
+      productType: "",
+      animalType: "",
+      sizeCategory: "MEDIUM",
+      quantity: 1,
+    });
   };
 
   const removeJobItem = (id: string) => {
     setJobItems(jobItems.filter((item) => item.id !== id));
   };
 
-  const totalJobValue = jobItems.reduce((sum, item) => sum + item.total_price, 0); // Use item.total_price
-  const totalItems = jobItems.reduce((sum, item) => sum + item.quantity, 0);
-  const uniqueArtisansCount = new Set(jobItems.map((item) => item.artisan)).size; // Use item.artisan for unique count
+  const totalJobValue = jobItems.reduce((sum, item) => sum + item.total_price, 0);
+  const totalItems = jobItems.reduce((sum, item) => sum + item.quantity_ordered, 0);
+  const uniqueArtisansCount = new Set(jobItems.map((item) => item.artisan)).size;
+
+  // Check if button should be disabled - removed productPrice.id requirement
+  const isAddButtonDisabled = 
+    !currentItem.artisanId ||
+    !currentItem.productType ||
+    !currentItem.animalType ||
+    !serviceCategory ||
+    currentItem.quantity <= 0 ||
+    priceLoading ||
+    !productPrice ||
+    typeof productPrice.price !== 'number';
 
   const handleSubmit = async () => {
     if (jobItems.length === 0 || !serviceCategory) {
@@ -186,29 +209,23 @@ export default function CreateJobPage() {
       return;
     }
 
-    // Map jobItems to the payload format expected by the backend
-    const jobItemsPayload: JobItemPayload[] = jobItems.map(item => ({
+    const jobItemsPayload: JobItemData[] = jobItems.map(item => ({
       artisan: item.artisan,
-      product_type: item.product_type,
-      animal_type: item.animal_type,
-      size_category: item.size_category,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      total_price: item.total_price,
+      product: item.product,
+      quantity_ordered: item.quantity_ordered,
     }));
 
-    const payload: CreateJobPayload = {
+    const payload: CreateJobData = {
       service_category: serviceCategory,
-      notes: notes || undefined, // Send notes only if not empty
-      job_items: jobItemsPayload,
+      notes: notes || "",
+      items: jobItemsPayload,
     };
 
     try {
-      const createdJob = await createJob(payload); // Call the API hook
+      const createdJob = await createJob(payload);
       if (createdJob) {
-        setNewJobId(createdJob.id);
+        setNewJobId(createdJob.job_id);
         setShowSuccessDialog(true);
-        // Clear form after successful submission
         setJobItems([]);
         setServiceCategory("");
         setNotes("");
@@ -221,8 +238,6 @@ export default function CreateJobPage() {
         });
       }
     } catch (error) {
-      // Error is already handled by useCreateJob hook and set to its error state
-      // You can add a toast or more specific UI feedback here if needed
       console.error("Submission error caught in component:", error);
     }
   };
@@ -237,7 +252,6 @@ export default function CreateJobPage() {
     setShowSuccessDialog(false);
   };
 
-  // Render loading state for artisans and job creation
   if (artisansLoading) {
     return (
       <div className="container mx-auto p-6">
@@ -253,7 +267,6 @@ export default function CreateJobPage() {
     );
   }
 
-  // Render error state for artisans loading
   if (artisansError) {
     return (
       <div className="container mx-auto p-6">
@@ -281,7 +294,6 @@ export default function CreateJobPage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Job Setup */}
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
@@ -329,15 +341,15 @@ export default function CreateJobPage() {
                 <div>
                   <Label htmlFor="artisan">Artisan *</Label>
                   <Select
-                    value={currentItem.artisanId.toString()}
+                    value={String(currentItem.artisanId)}
                     onValueChange={(value) => setCurrentItem({ ...currentItem, artisanId: Number.parseInt(value) })}
-                    disabled={artisansLoading || artisansError !== null} // Disable if artisans are loading or error
+                    disabled={artisansLoading || !!artisansError}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select artisan" />
                     </SelectTrigger>
                     <SelectContent>
-                      {safeArtisans.map((artisan) => (
+                      {artisans?.map((artisan) => (
                         <SelectItem key={artisan.id} value={artisan.id.toString()}>
                           {artisan.name}
                         </SelectItem>
@@ -405,16 +417,14 @@ export default function CreateJobPage() {
                     type="number"
                     min="1"
                     value={currentItem.quantity}
-                    onChange={(e) => setCurrentItem({ ...currentItem, quantity: Number.parseInt(e.target.value) || 1 })}
+                    onChange={(e) => setCurrentItem({ ...currentItem, quantity: Math.max(1, Number.parseInt(e.target.value) || 1) })}
                   />
                 </div>
                 <div className="flex items-end">
                   <Button
                     onClick={addJobItem}
                     className="w-full"
-                    disabled={
-                      !currentItem.artisanId || !currentItem.productType || !currentItem.animalType || !serviceCategory
-                    }
+                    disabled={isAddButtonDisabled}
                   >
                     <Plus className="mr-2 h-4 w-4" />
                     Add Item
@@ -422,29 +432,49 @@ export default function CreateJobPage() {
                 </div>
               </div>
 
-              {currentItem.productType && currentItem.animalType && serviceCategory && (
+              {/* Debug information */}
+              <div className="text-xs text-muted-foreground border p-2 rounded">
+                <p>Debug: Button disabled = {isAddButtonDisabled ? 'true' : 'false'}</p>
+                <p>Artisan ID: {currentItem.artisanId}</p>
+                <p>Product Price Available: {productPrice ? 'Yes' : 'No'}</p>
+                <p>Product Price ID: {productPrice?.id || 'Not available - using fallback'}</p>
+                <p>Product Price Value: {productPrice?.price || 'N/A'}</p>
+              </div>
+
+              {priceLoading && (
+                <div className="p-3 bg-muted rounded-lg flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Fetching price...</span>
+                </div>
+              )}
+
+              {priceError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Price Error</AlertTitle>
+                  <AlertDescription>{priceError}</AlertDescription>
+                </Alert>
+              )}
+
+              {productPrice && (
                 <div className="p-3 bg-muted rounded-lg">
                   <div className="flex items-center gap-2">
                     <Calculator className="h-4 w-4" />
                     <span className="text-sm">
                       Estimated unit price:{" "}
                       <strong>
-                        $
-                        {getProductPrice( // Still using mock getProductPrice here
-                          currentItem.productType,
-                          currentItem.animalType,
-                          serviceCategory,
-                          currentItem.sizeCategory,
-                        ).toFixed(2)}
+                        ${productPrice.price.toFixed(2)}
                       </strong>
                     </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Product ID: {productPrice.id || 'Using fallback identifier'}
                   </div>
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Job Items List */}
           {jobItems.length > 0 && (
             <Card>
               <CardHeader>
@@ -474,8 +504,8 @@ export default function CreateJobPage() {
                         </TableCell>
                         <TableCell>{item.animal_type}</TableCell>
                         <TableCell>{item.size_category.replace(/_/g, " ")}</TableCell>
-                        <TableCell>{item.quantity}</TableCell>
-                        <TableCell>${item.unit_price.toFixed(2)}</TableCell>
+                        <TableCell>{item.quantity_ordered}</TableCell>
+                        <TableCell>${item.original_amount.toFixed(2)}</TableCell>
                         <TableCell className="font-medium">${item.total_price.toFixed(2)}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="sm" onClick={() => removeJobItem(item.id)}>
@@ -491,7 +521,6 @@ export default function CreateJobPage() {
           )}
         </div>
 
-        {/* Job Summary */}
         <div>
           <Card className="sticky top-6">
             <CardHeader>
@@ -534,7 +563,6 @@ export default function CreateJobPage() {
         </div>
       </div>
 
-      {/* Success Dialog */}
       <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
         <DialogContent>
           <DialogHeader>

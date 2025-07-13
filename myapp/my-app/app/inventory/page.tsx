@@ -1,62 +1,15 @@
+"use client"
+
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowUpDown } from "lucide-react"
-
-// Mock inventory data
-const inventoryData = [
-  {
-    id: 1,
-    productType: "SITTING_ANIMAL",
-    animalType: "Elephant",
-    serviceCategory: "CARVED",
-    quantity: 25,
-    averageCost: 30.0,
-    totalValue: 750.0,
-    lastUpdated: "2024-01-15",
-  },
-  {
-    id: 2,
-    productType: "ANIMAL_MASKS",
-    animalType: "Lion",
-    serviceCategory: "PAINTED",
-    quantity: 12,
-    averageCost: 40.0,
-    totalValue: 480.0,
-    lastUpdated: "2024-01-14",
-  },
-  {
-    id: 3,
-    productType: "YOGA_BOWLS",
-    animalType: "Generic",
-    serviceCategory: "FINISHED",
-    quantity: 8,
-    averageCost: 45.0,
-    totalValue: 360.0,
-    lastUpdated: "2024-01-13",
-  },
-  {
-    id: 4,
-    productType: "STANDING_ANIMAL",
-    animalType: "Giraffe",
-    serviceCategory: "SANDED",
-    quantity: 15,
-    averageCost: 35.0,
-    totalValue: 525.0,
-    lastUpdated: "2024-01-12",
-  },
-  {
-    id: 5,
-    productType: "CHOPSTICK_HOLDERS",
-    animalType: "Bird",
-    serviceCategory: "CARVED",
-    quantity: 30,
-    averageCost: 20.0,
-    totalValue: 600.0,
-    lastUpdated: "2024-01-11",
-  },
-]
+import { ArrowUpDown, Package, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { useProducts, useFinishedStock } from '@/hooks/useResource';
 
 const serviceStages = ["CARVED", "SANDED", "PAINTED", "FINISHED"]
 
@@ -71,8 +24,92 @@ function getStageColor(stage: string) {
 }
 
 export default function InventoryPage() {
-  const totalInventoryValue = inventoryData.reduce((sum, item) => sum + item.totalValue, 0)
-  const totalItems = inventoryData.reduce((sum, item) => sum + item.quantity, 0)
+  const { data: products, loading: productsLoading, error: productsError } = useProducts();
+  const { data: finishedStock, loading: finishedStockLoading, error: finishedStockError } = useFinishedStock();
+
+  const [selectedProductType, setSelectedProductType] = useState("all");
+  const [selectedAnimalType, setSelectedAnimalType] = useState("all");
+  const [selectedStage, setSelectedStage] = useState("all");
+
+  const safeProducts = products || []; // useProducts is already returning an array
+  const safeFinishedStock = Array.isArray(finishedStock) ? finishedStock : [];
+
+  const filteredInventory = useMemo(() => {
+    let filtered = safeProducts;
+
+    if (selectedProductType !== "all") {
+      filtered = filtered.filter(item => item.product_type === selectedProductType);
+    }
+    if (selectedAnimalType !== "all") {
+      filtered = filtered.filter(item => item.animal_type === selectedAnimalType);
+    }
+    if (selectedStage !== "all") {
+      filtered = filtered.filter(item => item.service_category === selectedStage);
+    }
+    return filtered;
+  }, [safeProducts, selectedProductType, selectedAnimalType, selectedStage]);
+
+  const totalInventoryValue = filteredInventory.reduce((sum, item) => sum + (item.base_price || 0), 0);
+  const totalItems = filteredInventory.length;
+
+  // These statistics are not directly available from the current APIs, setting to 0 or N/A
+  const readyForNextStage = "N/A"; 
+  const finishedProductsCount = safeFinishedStock.length;
+
+  const productTypesOptions = useMemo(() => {
+    const types = new Set<string>();
+    safeProducts.forEach(p => types.add(p.product_type));
+    return ["all", ...Array.from(types)];
+  }, [safeProducts]);
+
+  const animalTypesOptions = useMemo(() => {
+    const types = new Set<string>();
+    safeProducts.forEach(p => types.add(p.animal_type));
+    return ["all", ...Array.from(types)];
+  }, [safeProducts]);
+
+  if (productsLoading || finishedStockLoading) {
+    return (
+      <div className="container mx-auto p-6">
+        <Skeleton className="h-10 w-64 mb-2" />
+        <Skeleton className="h-5 w-96" />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 mt-8">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-4 w-40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-72 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (productsError || finishedStockError) {
+    return (
+      <div className="container mx-auto p-6">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{productsError instanceof Error ? productsError.message : finishedStockError instanceof Error ? finishedStockError.message : "An unknown error occurred."}</AlertDescription>
+        </Alert>
+        <Button onClick={() => { /* refetchProducts(); refetchFinishedStock(); */ }} className="mt-4">Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6">
@@ -108,7 +145,7 @@ export default function InventoryPage() {
             <CardTitle className="text-sm font-medium">Ready for Next Stage</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">67</div>
+            <div className="text-2xl font-bold">{readyForNextStage}</div>
             <p className="text-xs text-muted-foreground">Items awaiting processing</p>
           </CardContent>
         </Card>
@@ -118,7 +155,7 @@ export default function InventoryPage() {
             <CardTitle className="text-sm font-medium">Finished Products</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">8</div>
+            <div className="text-2xl font-bold">{finishedProductsCount}</div>
             <p className="text-xs text-muted-foreground">Ready for sale</p>
           </CardContent>
         </Card>
@@ -133,34 +170,35 @@ export default function InventoryPage() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <Select>
+              <Select value={selectedProductType} onValueChange={setSelectedProductType}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Product Types" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Product Types</SelectItem>
-                  <SelectItem value="SITTING_ANIMAL">Sitting Animal</SelectItem>
-                  <SelectItem value="YOGA_BOWLS">Yoga Bowls</SelectItem>
-                  <SelectItem value="ANIMAL_MASKS">Animal Masks</SelectItem>
+                  {productTypesOptions.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type === "all" ? "All Product Types" : type.replace(/_/g, " ")}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Select>
+              <Select value={selectedAnimalType} onValueChange={setSelectedAnimalType}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Animals" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Animals</SelectItem>
-                  <SelectItem value="Elephant">Elephant</SelectItem>
-                  <SelectItem value="Lion">Lion</SelectItem>
-                  <SelectItem value="Giraffe">Giraffe</SelectItem>
-                  <SelectItem value="Bird">Bird</SelectItem>
+                  {animalTypesOptions.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type === "all" ? "All Animals" : type}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Select>
+              <Select value={selectedStage} onValueChange={setSelectedStage}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Stages" />
                 </SelectTrigger>
@@ -203,23 +241,23 @@ export default function InventoryPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {inventoryData.map((item) => (
+              {filteredInventory.map((item: any) => (
                 <TableRow key={item.id}>
                   <TableCell>
-                    <Badge variant="outline">{item.productType.replace(/_/g, " ")}</Badge>
+                    <Badge variant="outline">{item.product_type.replace(/_/g, " ")}</Badge>
                   </TableCell>
-                  <TableCell>{item.animalType}</TableCell>
+                  <TableCell>{item.animal_type}</TableCell>
                   <TableCell>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStageColor(item.serviceCategory)}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStageColor(item.service_category)}`}
                     >
-                      {item.serviceCategory}
+                      {item.service_category}
                     </span>
                   </TableCell>
-                  <TableCell className="text-right font-medium">{item.quantity}</TableCell>
-                  <TableCell className="text-right">${item.averageCost.toFixed(2)}</TableCell>
-                  <TableCell className="text-right font-medium">${item.totalValue.toFixed(2)}</TableCell>
-                  <TableCell className="text-muted-foreground">{item.lastUpdated}</TableCell>
+                  <TableCell className="text-right font-medium">{item.quantity || "N/A"}</TableCell>
+                  <TableCell className="text-right">${(item.average_cost || 0).toFixed(2)}</TableCell>
+                  <TableCell className="text-right font-medium">${((item.quantity || 0) * (item.average_cost || 0)).toFixed(2)}</TableCell>
+                  <TableCell className="text-muted-foreground">{new Date(item.last_price_update).toLocaleDateString()}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
