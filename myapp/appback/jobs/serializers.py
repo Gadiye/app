@@ -1,6 +1,6 @@
 # jobs/serializers.py
 from rest_framework import serializers
-from .models import Job, JobItem, JobDelivery
+from .models import Job, JobItem, JobDelivery, ServiceRate
 from artisans.models import Artisan # Assuming Artisan app
 from products.models import Product # Assuming Product app
 
@@ -14,7 +14,7 @@ class ArtisanJobItemLiteSerializer(serializers.ModelSerializer):
 class ProductJobItemLiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
-        fields = ['id', 'product_type', 'animal_type', 'base_price', 'service_category']
+        fields = ['id', 'product_type', 'animal_type', 'base_price']
 
 
 # --- JobItem Serializers ---
@@ -49,17 +49,63 @@ class JobItemCreateUpdateSerializer(serializers.ModelSerializer):
             'quantity_ordered': {'min_value': 1}
         }
 
-    def validate_product(self, value):
-        # Optionally validate that product's service_category matches job's service_category if needed
-        if 'job' in self.context:
-            job = self.context['job']
-            if value.service_category != job.service_category:
-                 raise serializers.ValidationError(f"Product service category '{value.service_category}' does not match job service category '{job.service_category}'.")
-        return value
+    
 
     def create(self, validated_data):
-        job = self.context['job'] # Job instance is passed from JobItemViewSet
+        job = self.context['job']
         validated_data['job'] = job
+
+        product = validated_data['product']
+        quantity_ordered = validated_data['quantity_ordered']
+        # Use the job's service_category as the current_service_category for deduction logic
+        current_service_category = job.service_category
+
+        # Define the production chain mapping
+        # Key: current service category of the job item
+        # Value: list of possible previous service categories to deduct from (in order of preference)
+        PRODUCTION_CHAIN_MAP = {
+            'SANDING': ['CARVING', 'CUTTING'],
+            'PAINTING': ['SANDING'],
+            'FINISHING': ['PAINTING'],
+            'FINISHED': ['FINISHING'],
+        }
+
+        previous_categories_to_check = PRODUCTION_CHAIN_MAP.get(current_service_category)
+
+        if previous_categories_to_check:
+            from inventory.models import Inventory # Local import to avoid circular dependency
+
+            deducted = False
+            for prev_cat in previous_categories_to_check:
+                print(f"Attempting to deduct from product: {product.id} ({product.product_type} - {product.animal_type}), service_category: {prev_cat}, ordered: {quantity_ordered}")
+                try:
+                    inventory_item = Inventory.objects.get(
+                        product=product,
+                        service_category=prev_cat
+                    )
+                    print(f"Found inventory item: ID={inventory_item.id}, Current Quantity={inventory_item.quantity}, Is Active={inventory_item.is_active}")
+
+                    if inventory_item.quantity >= quantity_ordered:
+                        inventory_item.quantity -= quantity_ordered
+                        inventory_item.save()
+                        deducted = True
+                        print(f"Deduction successful. New quantity: {inventory_item.quantity}")
+                        break # Successfully deducted, move to next item
+                    else:
+                        print(f"Insufficient quantity in {prev_cat}. Needed: {quantity_ordered}, Available: {inventory_item.quantity}")
+                        continue
+
+                except Inventory.DoesNotExist:
+                    print(f"Inventory item not found for product {product.id} and service_category {prev_cat}")
+                    continue
+
+            if not deducted:
+                # If we reached here, it means deduction failed from all possible previous categories
+                raise serializers.ValidationError(
+                    f"Insufficient or no stock found in previous stages ({', '.join(previous_categories_to_check)}) "
+                    f"for {product.product_type} - {product.animal_type} (Ordered: {quantity_ordered})."
+                )
+
         # original_amount and final_payment are set in model's save method
         return super().create(validated_data)
 
@@ -87,18 +133,32 @@ class JobItemDetailListSerializer(serializers.ModelSerializer):
     artisan = ArtisanJobItemLiteSerializer(read_only=True)
     product = ProductJobItemLiteSerializer(read_only=True)
     deliveries = JobItemDeliverySerializer(many=True, read_only=True) # Nested deliveries
+    service_rate_per_unit = serializers.SerializerMethodField()
 
     class Meta:
         model = JobItem
         fields = [
             'id', 'job', 'artisan', 'product', 'quantity_ordered',
             'quantity_received', 'quantity_accepted', 'rejection_reason',
-            'original_amount', 'final_payment', 'payslip_generated', 'deliveries'
+            'original_amount', 'final_payment', 'payslip_generated', 'deliveries',
+            'service_rate_per_unit'
         ]
         read_only_fields = [
             'quantity_received', 'quantity_accepted', 'rejection_reason',
             'original_amount', 'final_payment', 'payslip_generated'
         ]
+
+    def get_service_rate_per_unit(self, obj):
+        from django.core.exceptions import ObjectDoesNotExist
+        print(f"Attempting to get service rate for Product ID: {obj.product.id}, Job Service Category: {obj.job.service_category}")
+        try:
+            # Get the service rate based on the job item's product and the job's service category
+            service_rate = ServiceRate.objects.get(product=obj.product, service_category=obj.job.service_category)
+            print(f"  Found ServiceRate: {service_rate.rate_per_unit}")
+            return service_rate.rate_per_unit
+        except ObjectDoesNotExist:
+            print(f"  ServiceRate not found for Product ID {obj.product.id} and Service Category '{obj.job.service_category}'.")
+            return None # Or 0.00, depending on how you want to represent missing rates
 
 
 # --- Job Serializers ---
@@ -146,22 +206,23 @@ class JobCreateUpdateSerializer(serializers.ModelSerializer):
         if not value:
             raise serializers.ValidationError("A job must have at least one item.")
         
-        # Check for service category consistency
-        service_category = self.initial_data.get('service_category')
-        for item_data in value:
-            product = item_data.get('product')
-            if product and product.service_category != service_category:
-                raise serializers.ValidationError(
-                    f"Product '{product.product_type}' has a different service category "
-                    f"than the one specified for the job ('{service_category}')."
-                )
+        # This validation was removed because Product.service_category no longer exists.
+        # The job's service_category now defines the stage, not the product's inherent category.
         return value
 
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         job = Job.objects.create(**validated_data)
         for item_data in items_data:
-            JobItem.objects.create(job=job, **item_data)
+            # Extract PKs from the validated model instances
+            processed_item_data = {
+                'artisan': item_data['artisan'].id,
+                'product': item_data['product'].id,
+                'quantity_ordered': item_data['quantity_ordered'],
+            }
+            item_serializer = JobItemCreateUpdateSerializer(data=processed_item_data, context={'job': job})
+            item_serializer.is_valid(raise_exception=True)
+            item_serializer.save() # This will call the create method of JobItemCreateUpdateSerializer
         return job
 
     def update(self, instance, validated_data):
@@ -180,3 +241,12 @@ class JobCreateUpdateSerializer(serializers.ModelSerializer):
         if value not in [choice[0] for choice in Product.SERVICE_CATEGORIES]:
             raise serializers.ValidationError("Invalid service category.")
         return value
+
+
+class ServiceRateSerializer(serializers.ModelSerializer):
+    product = ProductJobItemLiteSerializer(read_only=True) # Use the lite serializer for nested product details
+
+    class Meta:
+        model = ServiceRate
+        fields = ['id', 'product', 'service_category', 'rate_per_unit']
+    rate_per_unit = serializers.FloatField()

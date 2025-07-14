@@ -273,6 +273,9 @@ export default function CompleteJobPage() {
                           <div className="text-right">
                             <p className="font-medium">${(item.original_amount * item.quantity_accepted).toFixed(2)}</p>
                             <p className="text-xs text-muted-foreground">Current payment</p>
+                            {item.service_rate_per_unit !== undefined && (
+                              <p className="text-xs text-muted-foreground">Rate: ${item.service_rate_per_unit.toFixed(2)}/unit</p>
+                            )}
                           </div>
                         </div>
 

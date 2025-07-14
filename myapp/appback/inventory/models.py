@@ -6,13 +6,26 @@ class Inventory(models.Model):
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     service_category = models.CharField(
         max_length=50, 
-        choices=[(sc[0], sc[1]) for sc in Product.SERVICE_CATEGORIES if sc[0] != 'FINISHED']
+        choices=[
+            ('CARVING', 'Carving'),
+            ('CUTTING', 'Cutting'),
+            ('PAINTING', 'Painting'),
+            ('SANDING', 'Sanding'),
+            ('FINISHING', 'Finishing'),
+            ('FINISHED', 'Finished'),
+        ]
     )
     quantity = models.PositiveIntegerField(default=0)
     average_cost = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
         validators=[MinValueValidator(0)]
+    )
+    price_at_this_stage = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        validators=[MinValueValidator(0)],
+        default=0.00 # Default to 0, will be set on creation/update
     )
     last_updated = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)  # For soft deletion
@@ -31,8 +44,7 @@ class Inventory(models.Model):
 class FinishedStock(models.Model):
     product = models.ForeignKey(
         Product, 
-        on_delete=models.PROTECT, 
-        limit_choices_to={'service_category': 'FINISHED'}
+        on_delete=models.PROTECT
     )
     quantity = models.PositiveIntegerField(default=0)
     average_cost = models.DecimalField(

@@ -53,20 +53,20 @@ class Product(models.Model):
     
     product_type = models.CharField(max_length=50, choices=PRODUCT_TYPES)
     animal_type = models.CharField(max_length=50)
-    service_category = models.CharField(max_length=50, choices=SERVICE_CATEGORIES)
+    
     size_category = models.CharField(max_length=20, choices=SIZE_CATEGORIES, default='MEDIUM')
     base_price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
     is_active = models.BooleanField(default=True)
     last_price_update = models.DateTimeField(auto_now=True)
     
     class Meta:
-        unique_together = ['product_type', 'animal_type', 'service_category', 'size_category']
+        unique_together = ['product_type', 'animal_type', 'size_category']
         indexes = [
-            models.Index(fields=['product_type', 'animal_type', 'service_category']),
+            models.Index(fields=['product_type', 'animal_type']),
         ]
     
     def __str__(self):
-        return f"{self.product_type} - {self.animal_type} ({self.size_category}) - {self.service_category}"
+        return f"{self.product_type} - {self.animal_type} ({self.size_category})"
     
     def get_price_history(self):
         return self.price_history.order_by('-effective_date')

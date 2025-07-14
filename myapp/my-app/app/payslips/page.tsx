@@ -19,7 +19,7 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { useArtisans, usePayslips } from '@/hooks/useResource';
 import { api } from '@/lib/api';
 
-const serviceCategories = ["CARVING", "CUTTING", "PAINTING", "SANDING", "FINISHING"]
+const serviceCategories = ["CARVING", "CUTTING", "PAINTING", "SANDING", "FINISHING", "FINISHED"]
 
 export default function PayslipsPage() {
   const { data: artisans, loading: artisansLoading, error: artisansError } = useArtisans();
@@ -35,7 +35,7 @@ export default function PayslipsPage() {
   const safePayslips = payslips || [];
 
   const totalPayslips = safePayslips.length
-  const totalPayments = safePayslips.reduce((sum, p) => sum + p.total_payment, 0)
+  const totalPayments = safePayslips.reduce((sum, p) => sum + (typeof p.total_payment === 'number' ? p.total_payment : parseFloat(p.total_payment) || 0), 0)
   // Pending payments data is not yet integrated from API, so it will show 0
   const pendingAmount = 0; 
 
@@ -351,7 +351,7 @@ export default function PayslipsPage() {
                 <TableBody>
                   {safePayslips.map((payslip) => (
                     <TableRow key={payslip.id}>
-                      <TableCell className="font-medium">{payslip.artisan}</TableCell>
+                      <TableCell className="font-medium">{payslip.artisan.name}</TableCell>
                       <TableCell>
                         <Badge variant="secondary">{payslip.service_category}</Badge>
                       </TableCell>
@@ -361,7 +361,13 @@ export default function PayslipsPage() {
                           <div className="text-muted-foreground">to {payslip.period_end}</div>
                         </div>
                       </TableCell>
-                      <TableCell className="font-medium">${payslip.total_payment.toFixed(2)}</TableCell>
+                     <TableCell className="font-medium">
+                        ${
+                          typeof payslip.total_payment === 'number'
+                            ? payslip.total_payment.toFixed(2)
+                            : parseFloat(payslip.total_payment || '0').toFixed(2)
+                        }
+                      </TableCell>
                       <TableCell>{new Date(payslip.generated_date).toLocaleDateString()}</TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => handleDownloadPayslip(payslip.id, payslip.pdf_file)}>

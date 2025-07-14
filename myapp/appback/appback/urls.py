@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from jobs.urls import standalone_router # Import the standalone_router
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -28,6 +29,7 @@ urlpatterns = [
     path('api/inventory/', include('inventory.urls')),
     path('api/orders/', include('orders.urls')),
     path('api/payslips/', include('payslips.urls')),
+    path('api/', include(standalone_router.urls)), # Include standalone router URLs here
 ]
 
 # Serve media files during development

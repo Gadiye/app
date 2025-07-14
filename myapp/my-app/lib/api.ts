@@ -250,7 +250,7 @@ export const api = {
 
   // Artisans
   artisans: {
-    list: () => apiRequest<{ results: Artisan[] }>("/artisans/").then(res => res.results),
+    list: () => apiRequest<PaginatedResponse<Artisan>>("/artisans/"),
     get: (id: number) => apiRequest<Artisan>(`/artisans/${id}/`),
     create: (data: Partial<Artisan>) =>
       apiRequest<Artisan>("/artisans/", {
@@ -491,5 +491,25 @@ export const api = {
         headers: {}, // Let browser set content-type for FormData
       });
     },
+  },
+
+  // Service Rates
+  serviceRates: {
+    list: (params?: URLSearchParams) => apiRequest<PaginatedResponse<ServiceRate>>(`/service-rates/?${params?.toString() || ''}`),
+    get: (id: number) => apiRequest<ServiceRate>(`/service-rates/${id}/`),
+    create: (data: Partial<ServiceRate>) =>
+      apiRequest<ServiceRate>("/service-rates/", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: Partial<ServiceRate>) =>
+      apiRequest<ServiceRate>(`/service-rates/${id}/`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      apiRequest<void>(`/service-rates/${id}/`, {
+        method: "DELETE",
+      }),
   },
 }

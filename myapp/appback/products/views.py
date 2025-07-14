@@ -55,7 +55,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ProductFilter
-    search_fields = ['animal_type', 'product_type', 'service_category']
+    search_fields = ['animal_type', 'product_type']
     ordering_fields = ['base_price', 'last_price_update', 'product_type', 'created_at']
     ordering = ['-last_price_update']
     pagination_class = ProductPagination
@@ -227,10 +227,6 @@ class ProductViewSet(viewsets.ModelViewSet):
         {'value': choice[0], 'label': choice[1]}
         for choice in Product.PRODUCT_TYPES
     ],
-    'service_categories': [
-        {'value': choice[0], 'label': choice[1]}
-        for choice in Product.SERVICE_CATEGORIES
-    ],
     'size_categories': [
         {'value': choice[0], 'label': choice[1]}
         for choice in Product.SIZE_CATEGORIES
@@ -390,29 +386,40 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Product
+from jobs.models import ServiceRate # Import ServiceRate
+from django.core.exceptions import ObjectDoesNotExist # Import ObjectDoesNotExist
 
 @api_view(['GET'])
 def get_price(request):
     """
-    GET /api/products/get_price/?product_type=...&animal_type=...&service_category=...&size_category=...
-    Returns the base price for a matching product, or 0 if not found.
+    GET /api/products/get_price/?product_type=...&animal_type=...&size_category=...&service_category=...
+    Returns the base price for a matching product and its service rate for the given service category.
     """
     product_type = request.GET.get("product_type")
     animal_type = request.GET.get("animal_type")
-    service_category = request.GET.get("service_category")
     size_category = request.GET.get("size_category")
+    service_category = request.GET.get("service_category") # Get service_category from request
 
-    if not all([product_type, animal_type, service_category, size_category]):
-        return Response({"error": "Missing required parameters."}, status=status.HTTP_400_BAD_REQUEST)
+    if not all([product_type, animal_type, size_category, service_category]): # service_category is now required
+        return Response({"error": "Missing required parameters."},
+                        status=status.HTTP_400_BAD_REQUEST)
 
     try:
         product = Product.objects.get(
             product_type=product_type,
             animal_type=animal_type,
-            service_category=service_category,
             size_category=size_category,
             is_active=True
         )
-        return Response({"id": product.id, "price": product.base_price}, status=status.HTTP_200_OK)
+        
+        service_rate_per_unit = None
+        try:
+            service_rate = ServiceRate.objects.get(product=product, service_category=service_category)
+            service_rate_per_unit = service_rate.rate_per_unit
+        except ObjectDoesNotExist:
+            # If no specific service rate is found, service_rate_per_unit remains None
+            pass
+
+        return Response({"id": product.id, "price": product.base_price, "service_rate_per_unit": service_rate_per_unit}, status=status.HTTP_200_OK)
     except Product.DoesNotExist:
         return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)

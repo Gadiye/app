@@ -17,10 +17,10 @@ const navigation = [
   { name: "Pricing", href: "/pricing", icon: DollarSign },
   { name: "Inventory", href: "/inventory", icon: Package },
   { name: "Artisans", href: "/artisans", icon: Users },
-  { name: "Reports", href: "/reports", icon: BarChart3 },
-  { name: "customers", href : "/customers", icon: Users },
-  { name: "orders", href : "/orders", icon: Package },
-  { name: "finished stock", href : "/stock", icon: Package },
+  // { name: "Reports", href: "/reports", icon: BarChart3 },
+  // { name: "customers", href : "/customers", icon: Users },
+  // { name: "orders", href : "/orders", icon: Package },
+  // { name: "finished stock", href : "/stock", icon: Package },
   { name: "payslip", href : "/payslips", icon: Package },
 ]
 

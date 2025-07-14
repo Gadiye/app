@@ -154,7 +154,6 @@ export default function JobsPage() {
           </CardContent>
         </Card>
       </div>
-
       {/* Jobs Table */}
       <Card>
         <CardHeader>
@@ -165,11 +164,12 @@ export default function JobsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                {/* Reordered columns for better visual flow */}
                 <TableHead>Job ID</TableHead>
+                <TableHead>Artisans</TableHead>
                 <TableHead>Date Created</TableHead>
                 <TableHead>Service</TableHead>
                 <TableHead>Created By</TableHead>
-                <TableHead>Artisans</TableHead>
                 <TableHead>Total Cost</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
@@ -178,27 +178,30 @@ export default function JobsPage() {
             <TableBody>
               {safeJobs.length === 0 ? (
                 <TableRow key="no-jobs-row">
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  {/* Adjusted colSpan to match the new number of columns */}
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     No jobs found
                   </TableCell>
                 </TableRow>
               ) : (
                 safeJobs.map((job: JobListEntry) => (
                   <TableRow key={job.job_id}>
+                    {/* Matched cell order to the new header order */}
                     <TableCell className="font-medium">#{job.job_id}</TableCell>
-                    <TableCell>{new Date(job.created_date).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{job.service_category}</Badge>
-                    </TableCell>
-                    <TableCell>{job.created_by}</TableCell>
                     <TableCell>
                       {job.artisans_involved && job.artisans_involved.length > 0
                         ? job.artisans_involved.join(', ')
                         : 'N/A'}
                     </TableCell>
+                    <TableCell>{new Date(job.created_date).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{job.service_category}</Badge>
+                    </TableCell>
+                    <TableCell>{job.created_by}</TableCell>
                     <TableCell className="font-medium">${Number(job.total_cost).toFixed(2)}</TableCell>
                     <TableCell>
                       <Badge variant={job.status === "COMPLETED" ? "default" : "secondary"}>
+                        {/* Cleanly display status by replacing underscores with spaces */}
                         {job.status?.replace(/_/g, " ") || "N/A"}
                       </Badge>
                     </TableCell>

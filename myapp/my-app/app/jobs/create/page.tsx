@@ -56,6 +56,7 @@ interface JobItemDisplay extends JobItemData {
   product_type: string;
   animal_type: string;
   size_category: string;
+  service_rate_per_unit?: number; // Add this new field
 }
 
 export default function CreateJobPage() {
@@ -81,15 +82,15 @@ export default function CreateJobPage() {
   const shouldFetchPrice = !!(
     currentItem.productType && 
     currentItem.animalType && 
-    serviceCategory && 
-    currentItem.sizeCategory
+    currentItem.sizeCategory &&
+    serviceCategory // serviceCategory is now required
   );
 
   const { data: productPrice, loading: priceLoading, error: priceError } = useProductPrice(
     currentItem.productType,
     currentItem.animalType,
-    serviceCategory,
     currentItem.sizeCategory,
+    serviceCategory, // Pass serviceCategory
     { enabled: shouldFetchPrice }
   );
 
@@ -127,10 +128,6 @@ export default function CreateJobPage() {
       alert("Please select an animal type");
       return;
     }
-    if (!serviceCategory) {
-      alert("Please select a service category");
-      return;
-    }
     if (currentItem.quantity <= 0) {
       alert("Please enter a valid quantity");
       return;
@@ -149,8 +146,14 @@ export default function CreateJobPage() {
       return;
     }
 
-    const unitPrice = productPrice.price;
-    const totalPrice = unitPrice * currentItem.quantity;
+    // Use service_rate_per_unit for payment calculations
+    const ratePerUnit = productPrice.service_rate_per_unit;
+    if (typeof ratePerUnit !== 'number') {
+      alert("Service rate not available for the selected options. Please ensure a rate is defined.");
+      return;
+    }
+
+    const totalPrice = ratePerUnit * currentItem.quantity;
     const selectedArtisan = artisans?.find((a) => a.id === currentItem.artisanId);
 
     if (!selectedArtisan) {
@@ -168,7 +171,8 @@ export default function CreateJobPage() {
       size_category: currentItem.sizeCategory,
       quantity_ordered: currentItem.quantity,
       total_price: totalPrice,
-      original_amount: unitPrice,
+      original_amount: ratePerUnit, // Now represents the rate per unit
+      service_rate_per_unit: ratePerUnit,
     };
 
     console.log("Adding new item:", newItem);
@@ -197,7 +201,6 @@ export default function CreateJobPage() {
     !currentItem.artisanId ||
     !currentItem.productType ||
     !currentItem.animalType ||
-    !serviceCategory ||
     currentItem.quantity <= 0 ||
     priceLoading ||
     !productPrice ||
@@ -343,16 +346,18 @@ export default function CreateJobPage() {
                   <Select
                     value={String(currentItem.artisanId)}
                     onValueChange={(value) => setCurrentItem({ ...currentItem, artisanId: Number.parseInt(value) })}
-                    disabled={artisansLoading || !!artisansError}
-                  >
+                    disabled={artisansLoading || !!artisansError}>
+                      
                     <SelectTrigger>
                       <SelectValue placeholder="Select artisan" />
                     </SelectTrigger>
                     <SelectContent>
                       {artisans?.map((artisan) => (
-                        <SelectItem key={artisan.id} value={artisan.id.toString()}>
-                          {artisan.name}
-                        </SelectItem>
+                        artisan.id !== undefined && artisan.id !== null ? (
+                          <SelectItem key={artisan.id} value={artisan.id.toString()}>
+                            {artisan.name}
+                          </SelectItem>
+                        ) : null
                       ))}
                     </SelectContent>
                   </Select>
@@ -463,7 +468,7 @@ export default function CreateJobPage() {
                     <span className="text-sm">
                       Estimated unit price:{" "}
                       <strong>
-                        ${productPrice.price.toFixed(2)}
+                        ${productPrice.service_rate_per_unit?.toFixed(2) || 'N/A'}
                       </strong>
                     </span>
                   </div>
@@ -490,7 +495,7 @@ export default function CreateJobPage() {
                       <TableHead>Animal</TableHead>
                       <TableHead>Size</TableHead>
                       <TableHead>Qty</TableHead>
-                      <TableHead>Unit Price</TableHead>
+                      <TableHead>Rate</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead></TableHead>
                     </TableRow>

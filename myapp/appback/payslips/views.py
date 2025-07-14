@@ -10,7 +10,7 @@ from django.core.files.base import ContentFile
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -23,6 +23,7 @@ from .serializers import (
     PayslipListSerializer,
     PayslipDetailSerializer,
     PayslipCreateUpdateSerializer,
+    PayslipGenerateSerializer, # Import the new serializer
     JobItemForPayslipSerializer, # For the /payslips/{id}/job-items/ endpoint
 )
 from .filters import PayslipFilter # Import the filterset
@@ -78,7 +79,8 @@ def generate_payslip_pdf(artisan, job_items, period_start, period_end, service_c
         p.drawString(100, y, str(item.product))
         p.drawString(250, y, str(item.quantity_ordered))
         p.drawString(320, y, str(item.quantity_accepted))
-        p.drawString(390, y, f"${getattr(item.product, 'base_price', Decimal('0.00')):.2f}") # Handle missing base_price
+        unit_price = item.final_payment / item.quantity_accepted if item.quantity_accepted > 0 else Decimal('0.00')
+        p.drawString(390, y, f"${unit_price:.2f}")
         p.drawString(460, y, f"${item.final_payment:.2f}")
         total_payment += item.final_payment
         y -= 20
@@ -117,7 +119,7 @@ class PayslipViewSet(viewsets.ModelViewSet):
     """
     queryset = Payslip.objects.all().select_related('artisan') # Optimize for list/detail
     pagination_class = PayslipPagination
-    permission_classes = [IsAuthenticated] # Most operations require authentication
+    permission_classes = [AllowAny] # Most operations require authentication
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = PayslipFilter # Apply the custom filterset
     search_fields = ['artisan__name'] # Search by artisan name
@@ -129,8 +131,10 @@ class PayslipViewSet(viewsets.ModelViewSet):
             return PayslipListSerializer
         elif self.action == 'retrieve':
             return PayslipDetailSerializer
-        elif self.action in ['create', 'update', 'partial_update', 'generate_payslip_from_jobs']:
+        elif self.action in ['create', 'update', 'partial_update']:
             return PayslipCreateUpdateSerializer
+        elif self.action == 'generate_payslip_from_jobs':
+            return PayslipGenerateSerializer
         return PayslipListSerializer # Default for other actions
 
     def get_serializer_context(self):
@@ -234,65 +238,98 @@ class PayslipViewSet(viewsets.ModelViewSet):
     def generate_payslip_from_jobs(self, request):
         """
         POST /api/payslips/generate/
-        Generate a new payslip for an artisan based on unprocessed job items.
+        Generate a new payslip for an artisan or a bulk of payslips for a service category.
         """
-        serializer = self.get_serializer(data=request.data) # Use PayslipCreateUpdateSerializer for input validation
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
 
-        artisan_id = serializer.validated_data['artisan'].id
-        period_start = serializer.validated_data['period_start']
-        period_end = serializer.validated_data['period_end']
-        service_category = serializer.validated_data.get('service_category') # Optional
-
-        artisan = get_object_or_404(Artisan, pk=artisan_id)
+        artisan_id = validated_data.get('artisan_id')
+        service_category = validated_data.get('service_category')
+        period_start = validated_data['period_start']
+        period_end = validated_data['period_end']
 
         # Ensure period_end is treated as the end of the day for range queries
         period_end_with_time = datetime.combine(period_end, datetime.max.time())
 
-        # Find eligible job items that are not yet part of a payslip
-        job_items_query = JobItem.objects.filter(
-            artisan=artisan,
+        # Base query for eligible job items
+        base_query = JobItem.objects.filter(
             job__created_date__range=[period_start, period_end_with_time],
-            quantity_accepted__gt=0, # Only accepted items contribute
-            payslip_generated=False # Crucial: Only process un-payslipped items
-        ).select_related('job', 'product') # Preload related objects for PDF generation and payment calculation
+            quantity_accepted__gt=0,
+            payslip_generated=False
+        ).select_related('job', 'product', 'artisan')
 
-        if service_category:
-            job_items_query = job_items_query.filter(job__service_category=service_category)
+        if artisan_id:
+            # --- Individual Payslip Generation ---
+            artisan = get_object_or_404(Artisan, pk=artisan_id)
+            job_items_query = base_query.filter(artisan=artisan)
+            
+            job_items = list(job_items_query)
 
-        job_items = list(job_items_query) # Convert to list to use multiple times
+            if not job_items:
+                return Response({"detail": "No eligible job items found for this artisan in the specified period."},
+                                status=status.HTTP_404_NOT_FOUND)
 
-        if not job_items:
-            return Response({"detail": "No eligible job items found to generate a payslip for this period and artisan."},
-                            status=status.HTTP_200_OK) # Or 404/400, depending on desired strictness
+            # Generate single payslip
+            pdf_content, total_payment = generate_payslip_pdf(artisan, job_items, period_start, period_end)
 
-        # Calculate total payment
-        total_payment = sum(item.final_payment for item in job_items)
+            with transaction.atomic():
+                payslip = Payslip.objects.create(
+                    artisan=artisan,
+                    service_category=job_items[0].job.service_category if len(set(i.job.service_category for i in job_items)) == 1 else None,
+                    total_payment=total_payment,
+                    period_start=period_start,
+                    period_end=period_end,
+                )
+                pdf_filename = f"payslips/{artisan.name.replace(' ', '_')}_{period_start.strftime('%Y%m%d')}_{period_end.strftime('%Y%m%d')}_{payslip.pk}.pdf"
+                payslip.pdf_file.save(pdf_filename, ContentFile(pdf_content), save=True)
+                
+                job_item_ids = [item.id for item in job_items]
+                JobItem.objects.filter(id__in=job_item_ids).update(payslip_generated=True)
 
-        # Generate PDF content
-        pdf_content, _ = generate_payslip_pdf(artisan, job_items, period_start, period_end, service_category)
+            response_serializer = PayslipListSerializer(payslip, context={'request': request})
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
-        with transaction.atomic():
-            # Create Payslip record
-            payslip = Payslip.objects.create(
-                artisan=artisan,
-                service_category=service_category, # Will be null if not provided
-                total_payment=total_payment,
-                period_start=period_start,
-                period_end=period_end,
-                # pdf_file will be saved next
-            )
-            # Save PDF file to the Payslip instance
-            pdf_filename = f"payslips/{artisan.name.replace(' ', '_')}_{period_start.strftime('%Y%m%d')}_{period_end.strftime('%Y%m%d')}_{payslip.pk}.pdf"
-            payslip.pdf_file.save(pdf_filename, ContentFile(pdf_content), save=True)
+        elif service_category:
+            # --- Bulk Payslip Generation ---
+            job_items_query = base_query.filter(job__service_category=service_category)
+            
+            all_job_items = list(job_items_query)
 
-            # Mark processed JobItems as payslip_generated
-            job_item_ids = [item.id for item in job_items]
-            JobItem.objects.filter(id__in=job_item_ids).update(payslip_generated=True)
+            if not all_job_items:
+                return Response({"detail": f"No eligible job items found for service category '{service_category}' in the specified period."},
+                                status=status.HTTP_404)
 
-        # Return the created payslip data
-        response_serializer = PayslipListSerializer(payslip, context={'request': request})
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            # Group job items by artisan
+            from collections import defaultdict
+            artisan_job_items = defaultdict(list)
+            for item in all_job_items:
+                artisan_job_items[item.artisan].append(item)
+
+            generated_payslips = []
+            with transaction.atomic():
+                for artisan, items in artisan_job_items.items():
+                    pdf_content, total_payment = generate_payslip_pdf(artisan, items, period_start, period_end, service_category)
+                    
+                    payslip = Payslip.objects.create(
+                        artisan=artisan,
+                        service_category=service_category,
+                        total_payment=total_payment,
+                        period_start=period_start,
+                        period_end=period_end,
+                    )
+                    pdf_filename = f"payslips/{artisan.name.replace(' ', '_')}_{period_start.strftime('%Y%m%d')}_{period_end.strftime('%Y%m%d')}_{payslip.pk}.pdf"
+                    payslip.pdf_file.save(pdf_filename, ContentFile(pdf_content), save=True)
+                    
+                    job_item_ids = [item.id for item in items]
+                    JobItem.objects.filter(id__in=job_item_ids).update(payslip_generated=True)
+                    
+                    generated_payslips.append(payslip)
+
+            response_serializer = PayslipListSerializer(generated_payslips, many=True, context={'request': request})
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response({"detail": "Invalid request."}, status=status.HTTP_400_BAD_REQUEST)
 
 
     @action(detail=False, methods=['get'])

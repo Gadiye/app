@@ -33,6 +33,7 @@ export interface JobItem {
   final_payment: string;
   payslip_generated: boolean;
   deliveries: JobDelivery[];
+  service_rate_per_unit?: number; // Add this new field
 }
 
 export interface JobListEntry {
@@ -150,6 +151,7 @@ export interface PriceHistory {
 
 export interface ProductPrice {
   price: number;
+  service_rate_per_unit?: number; // Add this new field
 }
 
 export interface JobItemPayload {
@@ -166,4 +168,16 @@ export interface CreateJobPayload {
   service_category: string;
   notes?: string;
   job_items: JobItemPayload[];
+}
+
+export interface ServiceRate {
+  id: number;
+  product: {
+    id: number;
+    product_type: string;
+    animal_type: string;
+    base_price: number;
+  };
+  service_category: string;
+  rate_per_unit: number;
 }

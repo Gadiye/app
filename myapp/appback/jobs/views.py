@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Job, JobItem, JobDelivery
+from .models import Job, JobItem, JobDelivery, ServiceRate
 from .serializers import (
     JobListSerializer,
     JobDetailSerializer,
@@ -19,6 +19,7 @@ from .serializers import (
     JobItemDetailListSerializer,
     JobItemCreateUpdateSerializer,
     JobItemDeliverySerializer,
+    ServiceRateSerializer,
 )
 from .filters import JobFilter, JobItemFilter
 
@@ -236,10 +237,7 @@ class JobViewSet(viewsets.ModelViewSet):
             # Create the delivery record
             delivery = serializer.save(job_item=job_item)
             
-            # ** FIX: Explicitly update the parent JobItem totals **
-            job_item.quantity_received += delivery.quantity_received
-            job_item.quantity_accepted += delivery.quantity_accepted
-            job_item.save()  # This will trigger the parent Job's status update via the model's save method
+            
 
             # Return the UPDATED JobItem, which is more useful for the frontend
             response_serializer = JobItemDetailListSerializer(job_item)
@@ -350,7 +348,7 @@ class JobItemViewSet(viewsets.ModelViewSet):
     """
     queryset = JobItem.objects.all().select_related('artisan', 'product', 'job')
     serializer_class = JobItemDetailListSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = JobItemFilter
     search_fields = ['artisan__name', 'product__product_type', 'job__job_id']
@@ -463,7 +461,7 @@ class JobDeliveryViewSet(viewsets.ModelViewSet):
     """
     queryset = JobDelivery.objects.all().select_related('job_item__job', 'job_item__artisan', 'job_item__product')
     serializer_class = JobItemDeliverySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['job_item__artisan__name', 'job_item__product__product_type', 'job_item__job__job_id']
     ordering_fields = ['delivery_date', 'quantity_received', 'quantity_accepted']
@@ -532,3 +530,13 @@ class JobDeliveryViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class ServiceRateViewSet(viewsets.ModelViewSet):
+    queryset = ServiceRate.objects.all()
+    serializer_class = ServiceRateSerializer
+    permission_classes = [AllowAny] # Adjust permissions as needed
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['service_category', 'product']
+    search_fields = ['service_category', 'product__product_type', 'product__animal_type']
+    ordering_fields = ['service_category', 'rate_per_unit', 'product__product_type']

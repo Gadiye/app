@@ -13,6 +13,33 @@ from django.db import transaction
 from django.utils import timezone
 
 
+class PayslipGenerateSerializer(serializers.Serializer):
+    """
+    Serializer for the payslip generation action.
+    Validates input for generating payslips, accepting either artisan_id or service_category.
+    """
+    artisan_id = serializers.IntegerField(required=False)
+    service_category = serializers.CharField(required=False)
+    period_start = serializers.DateField()
+    period_end = serializers.DateField()
+
+    def validate(self, data):
+        artisan_id = data.get('artisan_id')
+        service_category = data.get('service_category')
+
+        if not artisan_id and not service_category:
+            raise serializers.ValidationError("Either 'artisan_id' or 'service_category' must be provided.")
+
+        if artisan_id and service_category:
+            raise serializers.ValidationError("Provide either 'artisan_id' or 'service_category', but not both.")
+
+        if 'period_start' in data and 'period_end' in data:
+            if data['period_start'] > data['period_end']:
+                raise serializers.ValidationError("Period start date cannot be after period end date.")
+
+        return data
+
+
 class ArtisanLiteSerializer(serializers.ModelSerializer):
     """Lite serializer for nested Artisan details."""
     class Meta:
@@ -53,8 +80,7 @@ class PayslipListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payslip
         fields = [
-            'id', 'artisan', 'service_category', 'service_category_display', 'generated_date',
-            'total_payment', 'period_start', 'period_end', 'pdf_file_url'
+            'id', 'artisan', 'service_category', 'service_category_display', 'generated_date', 'total_payment', 'pdf_file_url'
         ]
         read_only_fields = ['generated_date'] # total_payment can be provided or calculated
 

@@ -8,7 +8,6 @@ class ProductFilter(django_filters.FilterSet):
     FilterSet for Product model.
     """
     product_type = django_filters.ChoiceFilter(choices=Product.PRODUCT_TYPES, help_text='Filter by product type.')
-    service_category = django_filters.ChoiceFilter(choices=Product.SERVICE_CATEGORIES, help_text='Filter by service category.')
     size_category = django_filters.ChoiceFilter(choices=Product.SIZE_CATEGORIES, help_text='Filter by size category.')
     animal_type = django_filters.CharFilter(lookup_expr='icontains', help_text='Search by partial animal type.')
     is_active = django_filters.BooleanFilter(help_text='Filter by active status (true/false).')
@@ -18,7 +17,7 @@ class ProductFilter(django_filters.FilterSet):
     class Meta:
         model = Product
         fields = [
-            'product_type', 'service_category', 'size_category', 'animal_type',
+            'product_type', 'size_category', 'animal_type',
             'is_active', 'base_price_gte', 'base_price_lte'
         ]
 

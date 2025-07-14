@@ -23,6 +23,7 @@ export const useJobs = createResourceHook<Job[]>(() => api.jobs.list())
 export const useOrders = createResourceHook(() => api.orders.list())
 export const useFinishedStock = createResourceHook(() => api.finishedStock.list())
 export const usePayslips = createResourceHook(() => api.payslips.list())
+export const useServiceRates = createResourceHook(() => api.serviceRates.list())
 
 // Individual resource hooks
 export function useArtisan(id: number, options?: { immediate?: boolean }) {

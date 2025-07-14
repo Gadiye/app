@@ -11,20 +11,19 @@ class ProductLiteSerializer(serializers.ModelSerializer):
     """Lite serializer for nested Product details in PriceHistory."""
     class Meta:
         model = Product
-        fields = ['id', 'product_type', 'animal_type', 'service_category']
+        fields = ['id', 'product_type', 'animal_type']
 
 
 class ProductSerializer(serializers.ModelSerializer):
     """Serializer for basic Product listing."""
     product_type_display = serializers.CharField(source='get_product_type_display', read_only=True)
-    service_category_display = serializers.CharField(source='get_service_category_display', read_only=True)
     size_category_display = serializers.CharField(source='get_size_category_display', read_only=True)
 
     class Meta:
         model = Product
         fields = [
             'id', 'product_type', 'product_type_display', 'animal_type',
-            'service_category', 'service_category_display', 'size_category',
+            'size_category',
             'size_category_display', 'base_price', 'is_active', 'last_price_update'
         ]
         read_only_fields = ['last_price_update']
@@ -41,13 +40,12 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            'id', 'product_type', 'animal_type', 'service_category',
+            'id', 'product_type', 'animal_type',
             'size_category', 'base_price', 'is_active'
         ]
         extra_kwargs = {
             'product_type': {'required': True},
             'animal_type': {'required': True},
-            'service_category': {'required': True},
             'base_price': {'required': True},
         }
 
@@ -64,11 +62,10 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
         if queryset.filter(
             product_type=data.get('product_type', self.instance.product_type if self.instance else None),
             animal_type=data.get('animal_type', self.instance.animal_type if self.instance else None),
-            service_category=data.get('service_category', self.instance.service_category if self.instance else None),
             size_category=data.get('size_category', self.instance.size_category if self.instance else None)
         ).exists():
             raise serializers.ValidationError(
-                "A product with this combination of product type, animal type, service category, and size already exists."
+                "A product with this combination of product type, animal type, and size already exists."
             )
         return data
 

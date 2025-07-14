@@ -1,12 +1,13 @@
 # jobs/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import JobViewSet, JobItemViewSet, JobDeliveryViewSet
+from .views import JobViewSet, JobItemViewSet, JobDeliveryViewSet, ServiceRateViewSet
 
 # Create routers for standalone viewsets
 standalone_router = DefaultRouter()
 standalone_router.register(r'job-items', JobItemViewSet, basename='jobitem')
 standalone_router.register(r'job-deliveries', JobDeliveryViewSet, basename='jobdelivery')
+standalone_router.register(r'service-rates', ServiceRateViewSet, basename='servicerates')
 
 urlpatterns = [
     # Job CRUD operations (basic REST endpoints)

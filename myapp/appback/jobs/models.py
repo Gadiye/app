@@ -21,7 +21,23 @@ class Job(models.Model):
     
     @property
     def total_cost(self):
-        return sum(item.original_amount for item in self.items.all())
+        from django.core.exceptions import ObjectDoesNotExist
+        from decimal import Decimal
+
+        total = Decimal('0.00')
+        print(f"Calculating total_cost for Job ID: {self.job_id}, Service Category: {self.service_category}")
+        for item in self.items.all():
+            print(f"  Processing JobItem ID: {item.id}, Product ID: {item.product.id}, Ordered Quantity: {item.quantity_ordered}")
+            try:
+                service_rate = ServiceRate.objects.get(product=item.product, service_category=self.service_category)
+                item_cost = service_rate.rate_per_unit * item.quantity_ordered
+                total += item_cost
+                print(f"    Found ServiceRate: {service_rate.rate_per_unit}/unit. Item Cost: {item_cost}")
+            except ObjectDoesNotExist:
+                print(f"    ServiceRate not found for Product ID {item.product.id} and Service Category '{self.service_category}'. Item cost set to 0.")
+                total += Decimal('0.00')
+        print(f"Final calculated total_cost for Job ID {self.job_id}: {total}")
+        return total
     
     @property
     def total_final_payment(self):
@@ -76,7 +92,18 @@ class JobItem(models.Model):
     def save(self, *args, **kwargs):
         if not self.pk:  # Only on creation
             self.original_amount = self.product.base_price * self.quantity_ordered
-        self.final_payment = self.product.base_price * self.quantity_accepted
+
+        # Calculate final_payment based on fixed rate per unit for the job's service category
+        from django.core.exceptions import ObjectDoesNotExist
+
+        try:
+            service_rate = ServiceRate.objects.get(product=self.product, service_category=self.job.service_category)
+            self.final_payment = service_rate.rate_per_unit * self.quantity_accepted
+        except ObjectDoesNotExist:
+            # Handle case where no rate is defined for this product and service category
+            self.final_payment = 0.00 # Default to 0 if no rate found
+            # raise ValueError(f"No service rate defined for product {self.product.id} and category: {self.job.service_category}")
+
         super().save(*args, **kwargs)
         self.job.update_status()
 
@@ -107,7 +134,7 @@ class JobDelivery(models.Model):
         # Update Inventory - import here to avoid circular imports
         from inventory.models import Inventory, FinishedStock
         
-        if job_item.product.service_category == 'FINISHED':
+        if job_item.job.service_category == 'FINISHED':
             finished_stock, created = FinishedStock.objects.get_or_create(
                 product=job_item.product,
                 defaults={'quantity': 0, 'average_cost': job_item.product.base_price}
@@ -121,12 +148,36 @@ class JobDelivery(models.Model):
         else:
             inventory, created = Inventory.objects.get_or_create(
                 product=job_item.product,
-                service_category=job_item.product.service_category,
-                defaults={'quantity': 0, 'average_cost': job_item.product.base_price}
+                service_category=job_item.job.service_category,
+                defaults={'quantity': 0, 'average_cost': job_item.product.base_price, 'price_at_this_stage': job_item.product.base_price}
             )
             inventory.quantity += self.quantity_accepted
-            inventory.average_cost = (
+            new_average_cost = (
                 (inventory.quantity * inventory.average_cost + self.quantity_accepted * job_item.product.base_price)
                 / (inventory.quantity + self.quantity_accepted)
             ) if (inventory.quantity + self.quantity_accepted) > 0 else job_item.product.base_price
+            inventory.average_cost = new_average_cost
+            inventory.price_at_this_stage = new_average_cost
             inventory.save()
+
+
+class ServiceRate(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE) # Link to specific product
+    SERVICE_CATEGORY_CHOICES = [
+        ('CARVING', 'Carving'),
+        ('CUTTING', 'Cutting'),
+        ('PAINTING', 'Painting'),
+        ('SANDING', 'Sanding'),
+        ('FINISHING', 'Finishing'),
+        ('FINISHED', 'Finished'),
+    ]
+    service_category = models.CharField(max_length=50, choices=SERVICE_CATEGORY_CHOICES)
+    rate_per_unit = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+
+    class Meta:
+        unique_together = ('product', 'service_category') # Ensure unique rate per product-service combo
+        verbose_name = "Service Rate"
+        verbose_name_plural = "Service Rates"
+
+    def __str__(self):
+        return f"{self.product.product_type} - {self.product.animal_type} ({self.service_category}) Rate: ${self.rate_per_unit}/unit"
