@@ -13,6 +13,7 @@ export interface ProductLite {
 
 export interface JobDelivery {
   id: number;
+  job_item: number; // Added missing property
   quantity_received: number;
   quantity_accepted: number;
   rejection_reason?: string | null;

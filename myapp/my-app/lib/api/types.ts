@@ -122,3 +122,15 @@ export interface CreateJobPayload {
   service_category: string;
   notes?: string;
 }
+
+export interface ServiceRate {
+  id: number;
+  product: {
+    id: number;
+    product_type: string;
+    animal_type: string;
+    base_price: string;
+  };
+  service_category: string;
+  rate_per_unit: number;
+}

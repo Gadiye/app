@@ -9,5 +9,5 @@ export const priceHistoryApi = {
   ...priceHistoryCrud,
   
   getMetadata: () => 
-    apiRequest<any>('/price-history/metadata/'),
+    apiRequest<Record<string, unknown>>('/price-history/metadata/'),
 }

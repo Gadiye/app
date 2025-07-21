@@ -3,15 +3,15 @@ import { apiRequest } from '../client'
 
 export const reportsApi = {
   dashboard: () => 
-    apiRequest<any>("/reports/dashboard/"),
+    apiRequest<Record<string, unknown>>("/reports/dashboard/"),
   
   production: (params?: URLSearchParams) =>
-    apiRequest<any>(`/reports/production/?${params?.toString() || ''}`, {
+    apiRequest<Record<string, unknown>>(`/reports/production/?${params?.toString() || ''}`, {
       method: "GET",
     }),
   
   financial: (params?: URLSearchParams) =>
-    apiRequest<any>(`/reports/financial/?${params?.toString() || ''}`, {
+    apiRequest<Record<string, unknown>>(`/reports/financial/?${params?.toString() || ''}`, {
       method: "GET",
     }),
 }

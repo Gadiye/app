@@ -3,7 +3,7 @@ import { createCrudApi } from '../base'
 import { FinishedStock } from '../types'
 
 // Only read operations for finished stock
-const finishedStockCrud = createCrudApi<FinishedStock>('finished-stock')
+const finishedStockCrud = createCrudApi<FinishedStock>('inventory/finished-stock')
 
 export const finishedStockApi = {
   list: finishedStockCrud.list,

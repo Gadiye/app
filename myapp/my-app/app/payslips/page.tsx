@@ -62,8 +62,8 @@ export default function PayslipsPage() {
       setSelectedService("");
       setPeriodStart(undefined);
       setPeriodEnd(undefined);
-    } catch (err: any) {
-      alert(`Failed to generate payslip: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Failed to generate payslip: ${(err as Error).message}`);
     }
   }
 
@@ -77,8 +77,8 @@ export default function PayslipsPage() {
       document.body.appendChild(link);
       link.click();
       link.parentNode?.removeChild(link);
-    } catch (err: any) {
-      alert(`Failed to download payslip: ${err.message}`);
+    } catch (err) {
+      alert(`Failed to download payslip: ${(err as Error).message}`);
     }
   }
 

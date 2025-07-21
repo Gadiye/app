@@ -1,16 +1,16 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Trash2, Calculator, Check, Loader2, AlertCircle } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Plus, Trash2, Calculator, Check, Loader2, AlertCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -18,15 +18,15 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Skeleton } from "@/components/ui/skeleton"
+} from "@/components/ui/dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Import API hooks and types
 import { useArtisans } from '@/hooks/useResource';
-import { useCreateJob, JobItemData, CreateJobData } from '@/hooks/useCreateJob';
+import { useCreateJob } from '@/hooks/useCreateJob';
+import { JobItemPayload, CreateJobPayload } from '@/lib/api/types';
 import { useProductPrice } from '@/hooks/useProductPrice';
-import { Artisan } from '@/lib/api';
 
 // --- CONSTANTS ---
 const PRODUCT_TYPES = [
@@ -49,7 +49,7 @@ const ANIMAL_TYPES = [
   "CAT", "HIPPO", "GAZELLE", "LIONESS", "BUFFALO", "RHINO", "GUINEA FOWL",
 ]
 
-interface JobItemDisplay extends JobItemData {
+interface JobItemDisplay extends JobItemPayload {
   id: string;
   artisanName: string;
   total_price: number;
@@ -212,13 +212,13 @@ export default function CreateJobPage() {
       return;
     }
 
-    const jobItemsPayload: JobItemData[] = jobItems.map(item => ({
+    const jobItemsPayload: JobItemPayload[] = jobItems.map(item => ({
       artisan: item.artisan,
       product: item.product,
       quantity_ordered: item.quantity_ordered,
     }));
 
-    const payload: CreateJobData = {
+    const payload: CreateJobPayload = {
       service_category: serviceCategory,
       notes: notes || "",
       items: jobItemsPayload,

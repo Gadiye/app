@@ -1,60 +1,108 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowUpDown, Package, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
+import { useMemo, useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowUpDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { useProducts, useFinishedStock } from '@/hooks/useResource';
+import { useProducts, useInventory } from '@/hooks/useResource';
 
-const serviceStages = ["CARVED", "SANDED", "PAINTED", "FINISHED"]
+
+interface EnrichedInventoryItem {
+  id: number; // InventoryItem ID
+  quantity: number;
+  average_cost: number;
+  last_updated: string; // From InventoryItem
+
+  // Product details (from Product model)
+  product_id: number; // The ID of the associated product
+  product_type: string;
+  animal_type: string;
+  service_category: string; // This is the service_category from InventoryItem
+  base_price: number; // From Product
+  product_last_price_update: string; // From Product
+}
+
+
+
+const serviceStages = ["CARVING", "SANDING", "PAINTING", "FINISHED"]
 
 function getStageColor(stage: string) {
   const colors: Record<string, string> = {
-    CARVED: "bg-blue-100 text-blue-800",
-    SANDED: "bg-yellow-100 text-yellow-800",
-    PAINTED: "bg-purple-100 text-purple-800",
+    CARVING: "bg-blue-100 text-blue-800",
+    SANDING: "bg-yellow-100 text-yellow-800",
+    PAINTING: "bg-purple-100 text-purple-800",
     FINISHED: "bg-green-100 text-green-800",
   }
   return colors[stage] || "bg-gray-100 text-gray-800"
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return String(error || "An unknown error occurred.");
+}
+
 export default function InventoryPage() {
   const { data: products, loading: productsLoading, error: productsError } = useProducts();
-  const { data: finishedStock, loading: finishedStockLoading, error: finishedStockError } = useFinishedStock();
+  const { data: inventory, loading: inventoryLoading, error: inventoryError } = useInventory();
 
   const [selectedProductType, setSelectedProductType] = useState("all");
   const [selectedAnimalType, setSelectedAnimalType] = useState("all");
   const [selectedStage, setSelectedStage] = useState("all");
 
-  const safeProducts = products || []; // useProducts is already returning an array
-  const safeFinishedStock = Array.isArray(finishedStock) ? finishedStock : [];
+  const readyForNextStage = "N/A"; // Moved declaration to the top
+
+  const safeProducts = useMemo(() => products || [], [products]);
+  const safeInventory = useMemo(() => Array.isArray(inventory) ? inventory : [], [inventory]);
 
   const filteredInventory = useMemo(() => {
-    let filtered = safeProducts;
+    const enrichedInventory: EnrichedInventoryItem[] = safeInventory.map(inventoryItem => {
+      const productDetail = safeProducts.find(p => p.id === Number(inventoryItem.product.id));
+      console.log("Inventory Item:", inventoryItem);
+      console.log("Product Detail Found:", productDetail);
+      console.log("safeProducts:", safeProducts);
+      return {
+        id: inventoryItem.id,
+        quantity: inventoryItem.quantity,
+        average_cost: Number(inventoryItem.average_cost || 0),
+        last_updated: inventoryItem.last_updated,
+        product_id: inventoryItem.product,
+        product_type: productDetail?.product_type || 'N/A',
+        animal_type: productDetail?.animal_type || 'N/A',
+        service_category: inventoryItem.service_category || 'N/A',
+        base_price: productDetail?.base_price || 0,
+        product_last_price_update: productDetail?.last_price_update || 'N/A',
+      };
+    }).filter(item => item.service_category !== 'FINISHED'); // Filter out FINISHED items
+
+    let finalFiltered = enrichedInventory;
 
     if (selectedProductType !== "all") {
-      filtered = filtered.filter(item => item.product_type === selectedProductType);
+      finalFiltered = finalFiltered.filter(item => item.product_type === selectedProductType);
     }
     if (selectedAnimalType !== "all") {
-      filtered = filtered.filter(item => item.animal_type === selectedAnimalType);
+      finalFiltered = finalFiltered.filter(item => item.animal_type === selectedAnimalType);
     }
     if (selectedStage !== "all") {
-      filtered = filtered.filter(item => item.service_category === selectedStage);
+      finalFiltered = finalFiltered.filter(item => item.service_category === selectedStage);
     }
-    return filtered;
-  }, [safeProducts, selectedProductType, selectedAnimalType, selectedStage]);
+    return finalFiltered;
+  }, [safeProducts, safeInventory, selectedProductType, selectedAnimalType, selectedStage]);
 
-  const totalInventoryValue = filteredInventory.reduce((sum, item) => sum + (item.base_price || 0), 0);
-  const totalItems = filteredInventory.length;
+  const totalInventoryValue = filteredInventory.reduce((sum, item) => sum + (item.quantity * item.average_cost), 0);
+  const totalItems = filteredInventory.reduce((sum, item) => sum + item.quantity, 0);
 
-  // These statistics are not directly available from the current APIs, setting to 0 or N/A
-  const readyForNextStage = "N/A"; 
-  const finishedProductsCount = safeFinishedStock.length;
+  // Finished products are now handled by a separate page
+  const finishedProductsCount = 0; // This page does not display finished products
 
   const productTypesOptions = useMemo(() => {
     const types = new Set<string>();
@@ -68,7 +116,7 @@ export default function InventoryPage() {
     return ["all", ...Array.from(types)];
   }, [safeProducts]);
 
-  if (productsLoading || finishedStockLoading) {
+  if (productsLoading || inventoryLoading) {
     return (
       <div className="container mx-auto p-6">
         <Skeleton className="h-10 w-64 mb-2" />
@@ -99,14 +147,14 @@ export default function InventoryPage() {
     );
   }
 
-  if (productsError || finishedStockError) {
+  if (productsError || inventoryError) {
     return (
       <div className="container mx-auto p-6">
         <Alert variant="destructive">
           <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{productsError instanceof Error ? productsError.message : finishedStockError instanceof Error ? finishedStockError.message : "An unknown error occurred."}</AlertDescription>
+          <AlertDescription>{getErrorMessage(productsError) || getErrorMessage(inventoryError)}</AlertDescription>
         </Alert>
-        <Button onClick={() => { /* refetchProducts(); refetchFinishedStock(); */ }} className="mt-4">Retry</Button>
+        <Button onClick={() => { /* refetchProducts(); refetchInventory(); */ }} className="mt-4">Retry</Button>
       </div>
     );
   }
@@ -241,12 +289,12 @@ export default function InventoryPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredInventory.map((item: any) => (
+              {filteredInventory.map((item: EnrichedInventoryItem) => (
                 <TableRow key={item.id}>
                   <TableCell>
-                    <Badge variant="outline">{item.product_type.replace(/_/g, " ")}</Badge>
+                    <Badge variant="outline">{(item.product_type ?? '').replace(/_/g, " ")}</Badge>
                   </TableCell>
-                  <TableCell>{item.animal_type}</TableCell>
+                  <TableCell>{item.animal_type ?? ''}</TableCell>
                   <TableCell>
                     <span
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStageColor(item.service_category)}`}
@@ -254,10 +302,10 @@ export default function InventoryPage() {
                       {item.service_category}
                     </span>
                   </TableCell>
-                  <TableCell className="text-right font-medium">{item.quantity || "N/A"}</TableCell>
-                  <TableCell className="text-right">${(item.average_cost || 0).toFixed(2)}</TableCell>
-                  <TableCell className="text-right font-medium">${((item.quantity || 0) * (item.average_cost || 0)).toFixed(2)}</TableCell>
-                  <TableCell className="text-muted-foreground">{new Date(item.last_price_update).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-right font-medium">{item.quantity}</TableCell>
+                  <TableCell className="text-right">${item.average_cost.toFixed(2)}</TableCell>
+                  <TableCell className="text-right font-medium">${(item.quantity * item.average_cost).toFixed(2)}</TableCell>
+                  <TableCell className="text-muted-foreground">{new Date(item.last_updated).toLocaleDateString()}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

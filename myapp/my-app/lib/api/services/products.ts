@@ -12,7 +12,7 @@ export const productsApi = {
     apiRequest<PriceHistory[]>(`/products/${productId}/price-history/?${params?.toString() || ''}`),
   
   getMetadata: () => 
-    apiRequest<any>('/products/metadata/'),
+    apiRequest<Record<string, unknown>>('/products/metadata/'),
   
   getPrice: (params: URLSearchParams) =>
     apiRequest<ProductPrice>(`/products/get_price/?${params.toString()}`),

@@ -2,11 +2,11 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
-import { Home, Briefcase, DollarSign, Package, Users, BarChart3, Menu } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils";
+import { Home, Briefcase, DollarSign, Package, Users, Menu } from "lucide-react";
+import { Button } from "@/components/ui/button";
 // Import SheetTitle and SheetHeader
-import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/components/ui/sheet";
 // You might need to import VisuallyHidden if you want to hide the title visually
 // import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 
@@ -20,7 +20,7 @@ const navigation = [
   // { name: "Reports", href: "/reports", icon: BarChart3 },
   // { name: "customers", href : "/customers", icon: Users },
   // { name: "orders", href : "/orders", icon: Package },
-  // { name: "finished stock", href : "/stock", icon: Package },
+  { name: "finished stock", href : "/stock", icon: Package },
   { name: "payslip", href : "/payslips", icon: Package },
 ]
 

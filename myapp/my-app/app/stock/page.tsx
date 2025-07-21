@@ -1,14 +1,25 @@
-"use client"
+"use client"; // <--- Add this line at the very top
 
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Edit, Package, DollarSign, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Package, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { useFinishedStock } from '@/hooks/useResource';
+import { FinishedStockItem } from "@/lib/api";
+
+interface EnrichedFinishedStockItem extends FinishedStockItem {
+  product: {
+    id: number;
+    product_type: string;
+    animal_type: string;
+    size_category: string;
+    base_price: number;
+    reorder_level: number;
+  };
+}
 
 function getStockStatusColor(status: string) {
   switch (status) {
@@ -45,12 +56,12 @@ export default function FinishedStockPage() {
   // Calculate statistics
   const totalProducts = safeFinishedStock.length;
   const totalQuantity = safeFinishedStock.reduce((sum, item) => sum + item.quantity, 0);
-  const totalValue = safeFinishedStock.reduce((sum, item) => sum + (item.quantity * item.average_cost), 0);
+  const totalValue = safeFinishedStock.reduce((sum, item) => sum + (item.quantity * Number(item.average_cost || 0)), 0);
   const lastUpdated = safeFinishedStock.length > 0 ? new Date(Math.max(...safeFinishedStock.map(item => new Date(item.last_updated).getTime()))).toLocaleDateString() : 'N/A';
 
   // Filter for low and out of stock items
-  const lowStockItems = safeFinishedStock.filter((item: any) => item.quantity <= item.product.reorder_level && item.quantity > 0).length;
-  const outOfStockItems = safeFinishedStock.filter((item: any) => item.quantity === 0).length;
+  const lowStockItems = safeFinishedStock.filter((item: EnrichedFinishedStockItem) => item.quantity <= item.product.reorder_level && item.quantity > 0).length;
+  const outOfStockItems = safeFinishedStock.filter((item: EnrichedFinishedStockItem) => item.quantity === 0).length;
 
 
   if (loading) {
@@ -169,7 +180,7 @@ export default function FinishedStockPage() {
                   return (
                     <div key={item.id} className="flex items-center justify-between p-2 bg-white rounded border">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline">{item.product.product_type.replace(/_/g, " ")}</Badge>
+                        <Badge variant="outline">{(item.product.product_type ?? '').replace(/_/g, " ")}</Badge>
                         <span className="text-sm">
                           {item.product.animal_type} ({item.product.size_category.replace(/_/g, " ")})
                         </span>
@@ -211,7 +222,7 @@ export default function FinishedStockPage() {
             </TableHeader>
             <TableBody>
               {safeFinishedStock.map((item) => {
-                const margin = ((item.product.base_price - item.average_cost) / item.product.base_price) * 100;
+                const margin = ((Number(item.product.base_price || 0) - Number(item.average_cost || 0)) / Number(item.product.base_price || 0)) * 100;
                 let status = "IN_STOCK";
                 if (item.quantity === 0) {
                   status = "OUT_OF_STOCK";
@@ -223,17 +234,17 @@ export default function FinishedStockPage() {
                     <TableCell>
                       <Badge variant="outline">{item.product.product_type.replace(/_/g, " ")}</Badge>
                     </TableCell>
-                    <TableCell>{item.product.animal_type}</TableCell>
-                    <TableCell>{item.product.size_category.replace(/_/g, " ")}</TableCell>
+                    <TableCell>{item.product.animal_type ?? ''}</TableCell>
+                    <TableCell>{(item.product.size_category ?? '').replace(/_/g, " ")}</TableCell>
                     <TableCell className="text-right font-medium">
                       {item.quantity}
                       {item.quantity <= item.product.reorder_level && item.quantity > 0 && (
                         <span className="text-yellow-600 ml-1">⚠</span>
                       )}
                     </TableCell>
-                    <TableCell>${item.average_cost.toFixed(2)}</TableCell>
+                    <TableCell>${Number(item.average_cost || 0).toFixed(2)}</TableCell>
                     <TableCell className="text-right font-medium">
-                      ${item.product.base_price.toFixed(2)}
+                      ${Number(item.product.base_price || 0).toFixed(2)}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">

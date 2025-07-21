@@ -162,7 +162,7 @@ class JobDelivery(models.Model):
 
 
 class ServiceRate(models.Model):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE) # Link to specific product
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='job_service_rates') # Link to specific product
     SERVICE_CATEGORY_CHOICES = [
         ('CARVING', 'Carving'),
         ('CUTTING', 'Cutting'),
@@ -180,4 +180,4 @@ class ServiceRate(models.Model):
         verbose_name_plural = "Service Rates"
 
     def __str__(self):
-        return f"{self.product.product_type} - {self.product.animal_type} ({self.service_category}) Rate: ${self.rate_per_unit}/unit"
+        return f"{self.product.product_type} - {self.product.animal_type} ({self.service_category}) Rate: Ksh{self.rate_per_unit}/unit"

@@ -1,6 +1,6 @@
 # payslips/serializers.py
 from rest_framework import serializers
-from .models import Payslip
+from .models import Payslip, ServiceRate
 from artisans.models import Artisan # Assuming Artisan is in 'artisans' app
 from jobs.models import JobItem     # Assuming JobItem is in 'jobs' app
 from products.models import Product # Assuming Product is in 'products' app
@@ -41,27 +41,35 @@ class PayslipGenerateSerializer(serializers.Serializer):
 
 
 class ArtisanLiteSerializer(serializers.ModelSerializer):
-    """Lite serializer for nested Artisan details."""
+    """
+    Lite serializer for nested Artisan details.
+    """
     class Meta:
         model = Artisan
         fields = ['id', 'name']
 
 class ProductLiteSerializer(serializers.ModelSerializer):
-    """Lite serializer for nested Product details."""
+    """
+    Lite serializer for nested Product details.
+    """
     class Meta:
         model = Product
         fields = ['id', 'product_type', 'animal_type', 'base_price'] # Added base_price for payslip details
 
 
 class JobForPayslipSerializer(serializers.ModelSerializer):
-    """Lite serializer for nested Job details, specifically for job_id."""
+    """
+    Lite serializer for nested Job details, specifically for job_id.
+    """
     class Meta:
         model = JobItem.job.field.model # Get the Job model from the JobItem's job field
         fields = ['job_id'] # Assuming Job model has a 'job_id' field
 
 
 class JobItemForPayslipSerializer(serializers.ModelSerializer):
-    """Serializer for JobItem when nested within Payslip details."""
+    """
+    Serializer for JobItem when nested within Payslip details.
+    """
     job = JobForPayslipSerializer(read_only=True) # Use the lite job serializer
     product = ProductLiteSerializer(read_only=True)
 
@@ -71,7 +79,9 @@ class JobItemForPayslipSerializer(serializers.ModelSerializer):
 
 
 class PayslipListSerializer(serializers.ModelSerializer):
-    """Serializer for listing Payslips."""
+    """
+    Serializer for listing Payslips.
+    """
     artisan = ArtisanLiteSerializer(read_only=True)
     pdf_file_url = serializers.SerializerMethodField()
     service_category_display = serializers.CharField(source='get_service_category_display', read_only=True)
@@ -91,7 +101,9 @@ class PayslipListSerializer(serializers.ModelSerializer):
         return None
 
 class PayslipDetailSerializer(PayslipListSerializer):
-    """Serializer for retrieving a single Payslip, with optional nested job items."""
+    """
+    Serializer for retrieving a single Payslip, with optional nested job items.
+    """
     job_items = serializers.SerializerMethodField() # For conditional inclusion
 
     class Meta(PayslipListSerializer.Meta):
@@ -103,8 +115,7 @@ class PayslipDetailSerializer(PayslipListSerializer):
             # Fetch JobItems that were part of this payslip generation.
             # This logic assumes that Payslip's creation process correctly marks JobItems
             # for that artisan, service_category, and period.
-            # A more robust solution might involve a ManyToMany relationship or a separate
-            # PayslipJobItem model if direct linking is needed.
+            # A more robust solution might link Payslip to JobItem directly (ManyToMany).
             # For now, we infer based on payslip_generated and date range for the artisan.
             queryset = JobItem.objects.filter(
                 artisan=obj.artisan,
@@ -303,3 +314,12 @@ class PayslipCreateUpdateSerializer(serializers.ModelSerializer):
                      ).update(payslip_generated=True) # Only update if they match criteria
 
         return instance
+
+
+class ServiceRateSerializer(serializers.ModelSerializer):
+    product = ProductLiteSerializer(read_only=True)
+
+    class Meta:
+        model = ServiceRate
+        fields = ['id', 'product', 'service_category', 'rate_per_unit', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Inventory
+from .models import Inventory, FinishedStock
 from products.models import Product
 from products.serializers import ProductSerializer
 from jobs.models import JobDelivery
@@ -126,6 +126,18 @@ class JobDeliverySerializer(serializers.ModelSerializer):
             'quantity_accepted', 'delivery_date', 'notes'
         ]
         read_only_fields = ['id']
+
+
+class FinishedStockSerializer(serializers.ModelSerializer):
+    """
+    Serializer for FinishedStock model.
+    """
+    product = ProductSerializer(read_only=True)
+
+    class Meta:
+        model = FinishedStock
+        fields = ['id', 'product', 'quantity', 'average_cost', 'last_updated']
+        read_only_fields = ['id', 'last_updated']
 
 
 class InventoryStockUpdateSerializer(serializers.Serializer):

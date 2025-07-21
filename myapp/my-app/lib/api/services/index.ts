@@ -11,6 +11,7 @@ import { payslipsApi } from '@/lib/api/services/payslips'
 import { finishedStockApi } from '@/lib/api/services/finishedStock'
 import { priceHistoryApi } from '@/lib/api/services/priceHistory'
 import { reportsApi } from '@/lib/api/services/reports'
+import { serviceRatesApi } from '@/lib/api/services/serviceRates'
 
 export const api = {
   products: productsApi,
@@ -22,4 +23,5 @@ export const api = {
   finishedStock: finishedStockApi,
   priceHistory: priceHistoryApi,
   reports: reportsApi,
+  serviceRates: serviceRatesApi,
 }

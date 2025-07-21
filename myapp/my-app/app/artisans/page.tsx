@@ -1,6 +1,6 @@
 "use client"; // This directive is crucial for using hooks like useState and useEffect
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,14 +12,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Loader2 } from "lucide-react"
 
 // Import the useArtisans hook from your hooks file
 import { useArtisans } from '@/hooks/useResource';
 import { api, Artisan } from '@/lib/api'; // Assuming your types are exported from lib/api/index.ts
 
-interface NewArtisan extends Omit<Artisan, 'id'> {}
+type NewArtisan = Omit<Artisan, 'id'>;
 
 export default function ArtisansPage() {
   // Use the useArtisans hook to fetch data
@@ -34,26 +33,16 @@ export default function ArtisansPage() {
     created_date: new Date().toISOString(),
   });
   const [submitting, setSubmitting] = useState(false);
-  const availableSpecialties = ["CARVING", "CUTTING", "PAINTING", "SANDING", "FINISHING", "FINISHED"];
 
   // Calculate statistics based on fetched artisans
   // Ensure 'artisans' is treated as an array for calculations
   const safeArtisans = artisans || [];
 
-  const activeArtisans = safeArtisans.filter((a: Artisan) => a.is_active).length;
-  const totalEarnings = safeArtisans.reduce((sum: number, a: Artisan) => sum + (a.total_earnings || 0), 0);
-  const totalPendingPayments = safeArtisans.reduce((sum: number, a: Artisan) => sum + (a.pending_payment || 0), 0);
+  const activeArtisans = safeArtisans.filter((a) => a.is_active).length;
+  const totalEarnings = safeArtisans.reduce((sum, a) => sum + (a.total_earnings || 0), 0);
+  const totalPendingPayments = safeArtisans.reduce((sum, a) => sum + (a.pending_payment || 0), 0);
   const averageRating = safeArtisans.length ?
-    safeArtisans.reduce((sum: number, a: Artisan) => sum + (a.average_rating || 0), 0) / safeArtisans.length : 0;
-
-  function handleSpecialtyToggle(specialty: string) {
-    setNewArtisan((prev) => ({
-      ...prev,
-      specialties: prev.specialties?.includes(specialty)
-        ? prev.specialties.filter((s: string) => s !== specialty)
-        : [...(prev.specialties || []), specialty],
-    }));
-  }
+    safeArtisans.reduce((sum, a) => sum + (a.average_rating || 0), 0) / safeArtisans.length : 0;
 
   async function handleAddArtisan() {
     setSubmitting(true);
@@ -62,9 +51,9 @@ export default function ArtisansPage() {
       setShowAddDialog(false);
       setNewArtisan({ name: "", phone: "", specialties: [], is_active: true, created_date: new Date().toISOString() });
       refetch();
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to create artisan:", err);
-      alert(`Error: ${err.message || "An unexpected error occurred."}`);
+      alert(`Error: ${(err as Error).message || "An unexpected error occurred."}`);
     } finally {
       setSubmitting(false);
     }
@@ -133,7 +122,7 @@ export default function ArtisansPage() {
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Add New Artisan</DialogTitle>
-                <DialogDescription>Enter the artisan's information below.</DialogDescription>
+                <DialogDescription>Enter the artisan&apos;s information below.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <div>

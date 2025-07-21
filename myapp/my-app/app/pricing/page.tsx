@@ -63,9 +63,9 @@ export default function PricingPage() {
               {serviceRates && serviceRates.length > 0 ? (
                 serviceRates.map((rate) => (
                   <TableRow key={rate.id}>
-                    <TableCell className="font-medium">{rate.product.product_type} - {rate.product.animal_type}</TableCell>
+                    <TableCell className="font-medium">{rate.product?.product_type} - {rate.product?.animal_type}</TableCell>
                     <TableCell>{rate.service_category}</TableCell>
-                    <TableCell>${rate.rate_per_unit.toFixed(2)}</TableCell>
+                    <TableCell>Ksh{(rate.rate_per_unit ?? 0).toFixed(2)}</TableCell>
                   </TableRow>
                 ))
               ) : (

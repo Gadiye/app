@@ -1,16 +1,17 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Download, BarChart3, PieChart, TrendingUp, DollarSign } from "lucide-react"
-import { DateRangePicker } from "@/components/date-range-picker"
+import { useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Download, BarChart3, PieChart, TrendingUp, DollarSign } from "lucide-react";
+import { DateRangePicker } from "@/components/date-range-picker";
+import { DateRange } from "react-day-picker";
 
 export default function ReportsPage() {
-  const [dateRange, setDateRange] = useState<any>({
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date(2024, 0, 1),
     to: new Date(),
   })

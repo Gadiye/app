@@ -34,7 +34,7 @@ export default function CustomersPage() {
     address: "",
   })
 
-  const safeCustomers = customers || [];
+  const safeCustomers = useMemo(() => customers || [], [customers]);
 
   const filteredCustomers = useMemo(() => {
     return safeCustomers.filter(
@@ -50,12 +50,12 @@ export default function CustomersPage() {
       refetch();
       setNewCustomer({ name: "", email: "", phone: "", address: "" });
       setShowAddDialog(false);
-    } catch (err: any) {
-      alert(`Failed to add customer: ${err.message}`);
+    } catch (err) {
+      alert(`Failed to add customer: ${(err as Error).message}`);
     }
   };
 
-  const activeCustomers = safeCustomers.filter((c) => c.is_active).length;
+  const activeCustomers = useMemo(() => safeCustomers.filter((c) => c.is_active).length, [safeCustomers]);
   const totalRevenue = 0; // Not directly available from API
   const avgOrderValue = 0; // Not directly available from API
   const newCustomersThisMonth = 0; // Not directly available from API
@@ -126,7 +126,7 @@ export default function CustomersPage() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add New Customer</DialogTitle>
-                <DialogDescription>Enter the customer's information below.</DialogDescription>
+                <DialogDescription>Enter the customer&apos;s information below.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <div>

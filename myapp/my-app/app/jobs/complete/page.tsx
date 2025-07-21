@@ -31,7 +31,8 @@ interface Delivery {
 
 // Extended JobItem interface to include deliveries
 interface JobItemWithDeliveries extends JobItem {
-  deliveries?: JobDelivery[]
+  deliveries?: JobDelivery[];
+  service_rate_per_unit?: number; // Explicitly add this property
 }
 
 // Extended Job interface to include items with deliveries
@@ -39,8 +40,18 @@ interface JobWithDeliveries extends Job {
   items: JobItemWithDeliveries[]
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return String(error || "An unknown error occurred.");
+}
+
 export default function CompleteJobPage() {
-  const router = useRouter()
+  useRouter();
   const { data: jobs, loading, error, refetch } = useJobs();
   const [detailedJob, setDetailedJob] = useState<JobWithDeliveries | null>(null);
 
@@ -53,7 +64,7 @@ export default function CompleteJobPage() {
     notes: "",
   })
 
-  const { data: fetchedJob, loading: jobLoading, error: jobError } = useJob(selectedJobId ? parseInt(selectedJobId) : 0, { immediate: !!selectedJobId });
+  const { data: fetchedJob } = useJob(selectedJobId ? parseInt(selectedJobId) : 0, { immediate: !!selectedJobId });
 
   useEffect(() => {
     if (fetchedJob) {
@@ -109,8 +120,8 @@ export default function CompleteJobPage() {
         refetch(); // Refetch jobs to update UI
         resetDeliveryForm();
         alert("Delivery recorded successfully!");
-      } catch (err: any) {
-        alert(`Failed to record delivery: ${err.message}`);
+      } catch (err) {
+        alert(`Failed to record delivery: ${(err as Error).message}`);
       }
     }
   }
@@ -145,14 +156,14 @@ export default function CompleteJobPage() {
     }
   }
 
-  const getProductDisplay = (product: any) => {
+  const getProductDisplay = (product: JobItem['product']) => {
     if (typeof product === 'object' && product !== null) {
       return `${product.product_type} - ${product.animal_type}`;
     }
     return "Product";
   }
 
-  const getArtisanDisplay = (artisan: any) => {
+  const getArtisanDisplay = (artisan: JobItem['artisan']) => {
     if (typeof artisan === 'object' && artisan !== null) {
       return artisan.name;
     }
@@ -195,7 +206,7 @@ export default function CompleteJobPage() {
       <div className="container mx-auto p-6">
         <Alert variant="destructive">
           <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error instanceof Error ? error.message : "An unknown error occurred."}</AlertDescription>
+          <AlertDescription>{getErrorMessage(error)}</AlertDescription>
         </Alert>
         <Button onClick={refetch} className="mt-4">Retry</Button>
       </div>
@@ -229,8 +240,8 @@ export default function CompleteJobPage() {
                         <span>
                           Job #{job.job_id} - {job.artisans_involved?.join(', ') || job.created_by}
                         </span>
-                        <Badge className={`ml-2 ${getStatusColor(getJobStatus(job as JobWithDeliveries))}`}>
-                          {getJobStatus(job as JobWithDeliveries).replace("_", " ")}
+                        <Badge className={`ml-2 ${getStatusColor(getJobStatus(job as unknown as JobWithDeliveries))}`}>
+                          {getJobStatus(job as unknown as JobWithDeliveries).replace("_", " ")}
                         </Badge>
                       </div>
                     </SelectItem>

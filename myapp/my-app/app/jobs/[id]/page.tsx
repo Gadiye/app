@@ -4,13 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
-import { Eye, CheckCircle, Package, Truck, Clock, AlertTriangle } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { CheckCircle, Package, Clock, AlertTriangle } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { useArtisan, useJob, useJobs } from '@/hooks/useResource';
-import React from 'react';
-import { api } from "@/lib/api"
+import { useJob } from '@/hooks/useResource';
+import React, { use } from 'react';
 
 function getStatusIcon(status: string) {
   switch (status) {
@@ -38,8 +36,12 @@ function getStatusColor(status: string) {
   }
 }
 
-export default function JobDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = React.use(params);
+interface PageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default function JobDetailsPage({ params }: PageProps) {
+  const { id } = use(params);
   const jobId = parseInt(id);
   
   const { data: job, loading, error, refetch } = useJob(jobId);
@@ -169,9 +171,9 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
                 <TableRow key={item.id}>
                   <TableCell>
                     <Badge variant="outline">
-                      {typeof item.artisan === 'object' && item.artisan?.name 
-                        ? item.artisan.name
-                        : item.artisan}
+                      {typeof item.artisan === 'object' 
+                        ? item.artisan?.name || 'Unknown'
+                        : item.artisan || 'Unknown'}
                     </Badge>
                   </TableCell>
                   <TableCell>

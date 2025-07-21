@@ -116,6 +116,15 @@ export interface FinishedStock {
   last_updated: string
 }
 
+export interface InventoryItem {
+  id: number;
+  product: number; // Product ID
+  service_category: string;
+  quantity: number;
+  average_cost: number;
+  last_updated: string;
+}
+
 // NEW: PriceHistory Interface
 export interface PriceHistory {
   id: number
@@ -166,31 +175,26 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 
     if (!response.ok) {
       let errorMessage = `HTTP error! status: ${response.status}`;
-      try {
-        const errorBody = await response.json();
-        // Try to find a 'detail' field first
-        if (errorBody.detail) {
-          errorMessage = errorBody.detail;
+      const errorBody = await response.json();
+      // Try to find a 'detail' field first
+      if (errorBody.detail) {
+        errorMessage = errorBody.detail;
+      }
+      // Then check for common DRF field errors
+      else if (typeof errorBody === 'object') {
+        const fieldErrors = Object.keys(errorBody)
+          .map(key => {
+            const value = errorBody[key];
+            if (Array.isArray(value) && value.length > 0) {
+              return `${key}: ${value.join(', ')}`;
+            } else {
+              return `${key}: ${value}`; // For non-array values (e.g., if detail is directly mapped to a key)
+            }
+          })
+          .join('; ');
+        if (fieldErrors) {
+          errorMessage = `Validation Error: ${fieldErrors}`;
         }
-        // Then check for common DRF field errors
-        else if (typeof errorBody === 'object') {
-          const fieldErrors = Object.keys(errorBody)
-            .map(key => {
-              const value = errorBody[key];
-              if (Array.isArray(value) && value.length > 0) {
-                return `${key}: ${value.join(', ')}`;
-              } else {
-                return `${key}: ${value}`; // For non-array values (e.g., if detail is directly mapped to a key)
-              }
-            })
-            .join('; ');
-          if (fieldErrors) {
-            errorMessage = `Validation Error: ${fieldErrors}`;
-          }
-        }
-      } catch (jsonError) {
-        // response was not JSON, use generic message
-        errorMessage = `HTTP error! status: ${response.status}`;
       }
       throw new Error(errorMessage);
     }
@@ -243,7 +247,7 @@ export const api = {
     // Nested price history for a product
     getPriceHistory: (productId: number, params?: URLSearchParams) =>
       apiRequest<PriceHistory[]>(`/products/${productId}/price-history/?${params?.toString() || ''}`),
-    getMetadata: () => apiRequest<any>('/products/metadata/'),
+    getMetadata: () => apiRequest<Record<string, unknown>>('/products/metadata/'),
     getPrice: (params: URLSearchParams) =>
       apiRequest<{ price: number }>(`/products/get_price/?${params.toString()}`),
   },
@@ -306,7 +310,7 @@ export const api = {
       apiRequest<void>(`/jobs/${id}/`, {
         method: "DELETE",
       }),
-    complete: (id: number, completionData: any) =>
+    complete: (id: number, completionData: Record<string, unknown>) =>
       apiRequest<Job>(`/jobs/${id}/complete/`, {
         method: "POST",
         body: JSON.stringify(completionData),
@@ -409,20 +413,20 @@ export const api = {
 
   // Finished Stock
   finishedStock: {
-    list: (params?: URLSearchParams) => apiRequest<FinishedStock[]>(`/finished-stock/?${params?.toString() || ''}`),
-    get: (id: number) => apiRequest<FinishedStock>(`/finished-stock/${id}/`),
+    list: (params?: URLSearchParams) => apiRequest<PaginatedResponse<FinishedStock>>(`/inventory/finished-stock/?${params?.toString() || ''}`).then(res => res.results),
+    get: (id: number) => apiRequest<FinishedStock>(`/inventory/finished-stock/${id}/`),
     create: (data: Partial<FinishedStock>) =>
-      apiRequest<FinishedStock>("/finished-stock/", {
+      apiRequest<FinishedStock>("/inventory/finished-stock/", {
         method: "POST",
         body: JSON.stringify(data),
       }),
     update: (id: number, data: Partial<FinishedStock>) =>
-      apiRequest<FinishedStock>(`/finished-stock/${id}/`, {
+      apiRequest<FinishedStock>(`/inventory/finished-stock/${id}/`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
     delete: (id: number) =>
-      apiRequest<void>(`/finished-stock/${id}/`, {
+      apiRequest<void>(`/inventory/finished-stock/${id}/`, {
         method: "DELETE",
       }),
   },
@@ -450,26 +454,26 @@ export const api = {
       apiRequest<void>(`/price-history/${id}/`, {
         method: "DELETE",
       }),
-    getMetadata: () => apiRequest<any>('/price-history/metadata/'),
+    getMetadata: () => apiRequest<Record<string, unknown>>('/price-history/metadata/'),
   },
 
   // Reports
   reports: {
-    dashboard: () => apiRequest<any>("/reports/dashboard/"),
+    dashboard: () => apiRequest<Record<string, unknown>>("/reports/dashboard/"),
     production: (params?: URLSearchParams) =>
-      apiRequest<any>(`/reports/production/?${params?.toString() || ''}`, {
+      apiRequest<Record<string, unknown>>(`/reports/production/?${params?.toString() || ''}`, {
         method: "GET",
       }),
     financial: (params?: URLSearchParams) =>
-      apiRequest<any>(`/reports/financial/?${params?.toString() || ''}`, {
+      apiRequest<Record<string, unknown>>(`/reports/financial/?${params?.toString() || ''}`, {
         method: "GET",
       }),
     artisan: (params?: URLSearchParams) =>
-      apiRequest<any>(`/reports/artisan/?${params?.toString() || ''}`, {
+      apiRequest<Record<string, unknown>>(`/reports/artisan/?${params?.toString() || ''}`, {
         method: "GET",
       }),
     inventory: (params?: URLSearchParams) =>
-      apiRequest<any>(`/reports/inventory/?${params?.toString() || ''}`, {
+      apiRequest<Record<string, unknown>>(`/reports/inventory/?${params?.toString() || ''}`, {
         method: "GET",
       }),
   },
@@ -479,13 +483,13 @@ export const api = {
     // Health check
     health: () => apiRequest<{ status: string }>("/health/"),
     // Get system metadata
-    metadata: () => apiRequest<any>("/metadata/"),
+    metadata: () => apiRequest<Record<string, unknown>>("/metadata/"),
     // Upload file (if needed)
     upload: (file: File, endpoint: string) => {
       const formData = new FormData();
       formData.append('file', file);
       
-      return apiRequest<any>(endpoint, {
+      return apiRequest<Record<string, unknown>>(endpoint, {
         method: "POST",
         body: formData,
         headers: {}, // Let browser set content-type for FormData
@@ -512,4 +516,24 @@ export const api = {
         method: "DELETE",
       }),
   },
-}
+
+  // Inventory (non-finished stock)
+  inventory: {
+    list: (params?: URLSearchParams) => apiRequest<PaginatedResponse<InventoryItem>>(`/inventory/items/?${params?.toString() || ''}`).then(res => res.results),
+    get: (id: number) => apiRequest<InventoryItem>(`/inventory/items/${id}/`),
+    create: (data: Partial<InventoryItem>) =>
+      apiRequest<InventoryItem>("/inventory/items/", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: Partial<InventoryItem>) =>
+      apiRequest<InventoryItem>(`/inventory/items/${id}/`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      apiRequest<void>(`/inventory/items/${id}/`, {
+        method: "DELETE",
+      }),
+  },
+};

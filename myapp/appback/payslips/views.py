@@ -14,7 +14,7 @@ from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnl
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Payslip
+from .models import Payslip, ServiceRate
 from artisans.models import Artisan
 from jobs.models import JobItem
 from products.models import Product # To access SERVICE_CATEGORIES
@@ -24,7 +24,8 @@ from .serializers import (
     PayslipDetailSerializer,
     PayslipCreateUpdateSerializer,
     PayslipGenerateSerializer, # Import the new serializer
-    JobItemForPayslipSerializer, # For the /payslips/{id}/job-items/ endpoint
+    JobItemForPayslipSerializer,
+    ServiceRateSerializer # Import the new serializer
 )
 from .filters import PayslipFilter # Import the filterset
 
@@ -352,3 +353,16 @@ class PayslipViewSet(viewsets.ModelViewSet):
             "pdf_upload_formats": ["base64-encoded-pdf", "multipart-form-data-pdf"]
         }
         return Response(metadata, status=status.HTTP_200_OK)
+
+
+class ServiceRateViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing ServiceRate resources.
+    """
+    queryset = ServiceRate.objects.all().select_related('product')
+    serializer_class = ServiceRateSerializer
+    permission_classes = [AllowAny]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['product__product_type', 'product__animal_type', 'service_category']
+    ordering_fields = ['product__product_type', 'product__animal_type', 'service_category', 'rate_per_unit']
+    pagination_class = PayslipPagination # Re-use PayslipPagination for now
