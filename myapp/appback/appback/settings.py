@@ -10,7 +10,7 @@ SECRET_KEY = 'your-secret-key-here'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'backend']
 
 # Application definition
 INSTALLED_APPS = [
@@ -82,7 +82,7 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'PAGE_SIZE': 100,
 }
 
 # CORS settings (for frontend connections)
@@ -91,6 +91,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:8080",  # Vue default
     "http://127.0.0.1:8080",
+    "http://localhost:3001",  # Your frontend port
+    "http://127.0.0.1:3001",
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True  # Only for development

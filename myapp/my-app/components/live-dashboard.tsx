@@ -6,7 +6,7 @@ import { Briefcase, Users, DollarSign, Package } from "lucide-react";
 import useSWR from 'swr';
 
 const fetcher = (url: string) => {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/";
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL;
   const fullUrl = `${baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`}${url}`;
   return fetch(fullUrl).then(res => res.json());
 };

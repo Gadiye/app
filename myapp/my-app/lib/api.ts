@@ -1,7 +1,7 @@
 import { PaginatedResponse, JobListEntry, } from '@/types'; // Assuming types are in @/types
 
 // API configuration and base functions
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // Types based on your Django models
 export interface Product {
@@ -151,7 +151,12 @@ export interface CreateDeliveryPayload {
 
 // Generic API functions
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`
+  // Ensure API_BASE_URL does not end with a slash
+  const baseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+  // Ensure endpoint starts with a slash
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  const url = `${baseUrl}${normalizedEndpoint}`
 
   const config: RequestInit = {
     headers: {
