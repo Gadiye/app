@@ -35,6 +35,8 @@ class Product(models.Model):
         ('JAM_SCOOPERS', 'Jam Scoopers'),
         ('NAPKIN_HOLDERS', 'Napkin Holders'),
         ('HAIR_COMBS', 'Hair Combs'),
+        ('PAPER_WEIGHTS', 'Paper Weights'),
+        ('TRAINING_CHOPSTICKS', 'Training Chopsticks'),
     ]
     
     SERVICE_CATEGORIES = [
@@ -63,6 +65,8 @@ class Product(models.Model):
         ('12IN', '12 Inch'),
         ('8IN', '8 Inch'),
         ('N/A', 'Not Applicable'),
+        ('2D', '2D'),
+        ('3D', '3D'),
     ]
     
     product_type = models.CharField(max_length=50, choices=PRODUCT_TYPES)
