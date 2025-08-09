@@ -21,6 +21,20 @@ class Product(models.Model):
         ('SALAD_SERVERS_PAIR', 'Salad Servers (in pairs)'),
         ('WALKING_ANIMAL', 'Walking Animal'),
         ('PLACE_CARD_HOLDER', 'Place Card Holder'),
+        ('SANTA_ANIMALS', 'Santa Animals'),
+        ('SUGAR_SPOONS', 'Sugar Spoons'),
+        ('COCKTAIL_STICKS', 'Cocktail Sticks'),
+        ('KEY_HOLDERS', 'Key Holders'),
+        ('FLAT_MAGNETS', 'Flat Magnets'),
+        ('PLAY_ANIMALS', 'Play Animals'),
+        ('CHOPSTICKS', 'Chopsticks'),
+        ('X_MAS_DECO', 'X-Mas Deco'),
+        ('FORKS', 'Forks'),
+        ('BUTTER_KNIFE', 'Butter Knife'),
+        ('LETTER_OPENER', 'Letter Opener'),
+        ('JAM_SCOOPERS', 'Jam Scoopers'),
+        ('NAPKIN_HOLDERS', 'Napkin Holders'),
+        ('HAIR_COMBS', 'Hair Combs'),
     ]
     
     SERVICE_CATEGORIES = [
