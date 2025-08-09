@@ -4,15 +4,14 @@ services:
   backend:
     build: ./appback
     command: >
-      sh -c "python manage.py migrate && 
-             python manage.py createsuperuser --noinput --username kichaka --email gadiyek@gmail.com || true &&
+      sh -c "python manage.py migrate &&
              python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./appback:/app/backend
     ports:
       - "8001:8000"
-    environment:
-      - DJANGO_SUPERUSER_PASSWORD=admin12345
+    env_file:
+      - ./appback/.env
     restart: unless-stopped
 
   frontend:

@@ -45,18 +45,19 @@ const SERVICE_CATEGORIES = ["CARVING", "CUTTING", "PAINTING", "SANDING", "FINISH
 const SIZE_CATEGORIES = [
   "SMALL", "MEDIUM", "LARGE", "WITH CLOTHES", "WITH DRESS", "WITH SUIT",
   "WITH OVERALL", "4IN", "8X8", "6X6", "5X4", "XMAS DRESS", "IN PAIRS", "12IN", "8IN", "N/A",
-  "2D", "3D",
+  "2D", "3D", "SHORT", "LONG", "THIN TIP", "THICK TIP", "NORMAL", "BOTTOMS UP",
 ]
 
 const ANIMAL_TYPES = [
   "LION", "ZEBRA", "GIRAFFE", "DONKEY", "LEOPARD", "CHEETAH", "ELEPHANT",
   "CAT", "HIPPO", "GAZELLE", "LIONESS", "BUFFALO", "RHINO", "GUINEA FOWL",
+  "GORILLA",
 ]
 
 interface JobItemDisplay extends JobItemPayload {
   id: string;
   artisanName: string;
-  total_price: number;
+  total_price: number; // Total price for this item
   product_type: string;
   animal_type: string;
   size_category: string;
@@ -78,8 +79,8 @@ export default function CreateJobPage() {
     artisanId: 0,
     productType: "",
     animalType: "",
-    sizeCategory: "MEDIUM",
-    quantity: 1, // Default to 1 instead of 0
+    sizeCategory: "",
+    quantity: "", // Default to 1 instead of 0
   });
 
   // Enable the price query only when all required fields are filled
@@ -188,7 +189,7 @@ export default function CreateJobPage() {
       productType: "",
       animalType: "",
       sizeCategory: "MEDIUM",
-      quantity: 1,
+      quantity: "",
     });
   };
 
@@ -240,8 +241,8 @@ export default function CreateJobPage() {
           artisanId: 0,
           productType: "",
           animalType: "",
-          sizeCategory: "MEDIUM",
-          quantity: 1,
+          sizeCategory: "",
+          quantity: "",
         });
       }
     } catch (error) {

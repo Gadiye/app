@@ -67,6 +67,12 @@ class Product(models.Model):
         ('N/A', 'Not Applicable'),
         ('2D', '2D'),
         ('3D', '3D'),
+        ('SHORT', 'Short'),
+        ('LONG', 'Long'),
+        ('THIN TIP', 'Thin Tip'),
+        ('THICK TIP', 'Thick Tip'),
+        ('NORMAL', 'Normal'),
+        ('BOTTOMS UP', 'Bottoms Up'),
     ]
     
     product_type = models.CharField(max_length=50, choices=PRODUCT_TYPES)
